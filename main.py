@@ -46,9 +46,18 @@ def main():
 
     # Get output path
     default_filename = f"{selected_disk['name']}_{datetime.now().strftime('%Y%m%d')}.img"
-    output_path = input(f"Enter the output file path [{default_filename}]: ").strip()
-    if not output_path:
-        output_path = default_filename
+    while True:
+        output_path = input(f"Enter the output file path [{default_filename}]: ").strip()
+        if not output_path:
+            output_path = default_filename
+        if os.path.exists(output_path):
+            confirm = input(f"File '{output_path}' exists. Overwrite? (y/N): ").strip().lower()
+            if confirm == 'y':
+                break
+            else:
+                print("Please enter a different file name or confirm overwrite.")
+        else:
+            break
 
     create_disk_image(selected_disk, output_path)
 
