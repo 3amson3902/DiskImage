@@ -9,7 +9,7 @@ class DiskImagerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Disk Imager GUI")
-        self.geometry("600x350")
+        self.geometry("600x400")
         self.resizable(False, False)
         self.selected_disk = None
         self.output_path = tk.StringVar()
@@ -58,9 +58,20 @@ class DiskImagerApp(tk.Tk):
         # If enabled, the backend will compress the output image:
         # - For raw (.img) and ISO (.iso), gzip is used (output is .img or .iso, but internally compressed)
         # - For qcow2/vmdk, qemu-img's -c option is used for built-in format compression
+        # - If 'zip' or '7z' is selected, the final image will be archived after creation
         # Compression reduces file size but may slow down the imaging process
         self.compress_var = tk.BooleanVar(value=False)
         tk.Checkbutton(self, text="Enable compression (smaller output, slower)", variable=self.compress_var).pack(pady=2)
+
+        # Archive option
+        self.archive_var = tk.StringVar(value="none")
+        archive_frame = tk.Frame(self)
+        archive_frame.pack(pady=2)
+        tk.Label(archive_frame, text="Archive format:").pack(side=tk.LEFT)
+        archive_menu = ttk.Combobox(archive_frame, state="readonly", width=6, textvariable=self.archive_var)
+        archive_menu['values'] = ["none", "zip", "7z"]
+        archive_menu.current(0)
+        archive_menu.pack(side=tk.LEFT, padx=5)
 
         # Progress bar (modern style)
         style = ttk.Style(self)
@@ -118,12 +129,13 @@ class DiskImagerApp(tk.Tk):
         image_format = self.format_map[self.format_menu.get()]
         use_sparse = self.sparse_var.get()
         use_compress = self.compress_var.get()
+        archive_type = self.archive_var.get()
         self.progress_var.set(0)
         self.status_var.set("Imaging in progress...")
         self.start_btn.config(state=tk.DISABLED)
-        threading.Thread(target=self.run_imaging, args=(out_path, image_format, use_sparse, use_compress), daemon=True).start()
+        threading.Thread(target=self.run_imaging, args=(out_path, image_format, use_sparse, use_compress, archive_type), daemon=True).start()
 
-    def run_imaging(self, out_path, image_format, use_sparse, use_compress):
+    def run_imaging(self, out_path, image_format, use_sparse, use_compress, archive_type):
         total_size = self.get_disk_size(self.selected_disk)
         def progress_callback(bytes_read):
             if total_size > 0:
@@ -133,7 +145,14 @@ class DiskImagerApp(tk.Tk):
             success, error = backend.create_disk_image_sparse(self.selected_disk, out_path, image_format, use_compress)
         else:
             success, error = backend.create_disk_image(self.selected_disk, out_path, progress_callback, image_format, use_compress)
-        if success:
+        if success and archive_type != "none":
+            self.status_var.set("Archiving...")
+            arch_success, arch_error = backend.archive_image(out_path, archive_type)
+            if arch_success:
+                self.status_var.set(f"Imaging and archiving complete: {arch_success}")
+            else:
+                self.status_var.set(f"Imaging complete, but archive failed: {arch_error}")
+        elif success:
             self.status_var.set("Imaging complete.")
         else:
             self.status_var.set(f"Error: {error}")

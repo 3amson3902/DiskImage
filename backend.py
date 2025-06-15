@@ -143,14 +143,18 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
     """
     Use qemu-img to create a sparse image directly from the physical disk.
     If compress=True, use qemu-img's -c option for supported formats (qcow2, vmdk).
+    For raw (.img) and iso, use qemu-img to create a sparse raw image.
     """
     device_path = disk_info['device_id']
     qemu_img = 'qemu-img.exe' if platform.system() == 'Windows' else 'qemu-img'
-    if image_format not in ['vhd', 'vmdk', 'qcow2']:
-        return False, f"Sparse imaging not supported for format: {image_format}"
+    # Map 'img' and 'iso' to 'raw' for qemu-img
+    if image_format in ['img', 'iso']:
+        out_fmt = 'raw'
+    else:
+        out_fmt = image_format
     try:
-        cmd = [qemu_img, 'convert', '-O', image_format, '-S', '4096']
-        if compress and image_format in ['qcow2', 'vmdk']:
+        cmd = [qemu_img, 'convert', '-O', out_fmt, '-S', '4096']
+        if compress and out_fmt in ['qcow2', 'vmdk']:
             cmd.append('-c')
         cmd += [device_path, output_path]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -159,3 +163,48 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
         return True, None
     except Exception as e:
         return False, str(e)
+
+# Archives the given image file as a zip or 7z archive.
+def archive_image(image_path, archive_type):
+    """
+    Archive the image file using zipfile (for .zip) or 7z (for .7z, requires 7z in PATH).
+    Returns (archive_path, None) on success, (None, error) on failure.
+    """
+    import shutil
+    import os
+    base, ext = os.path.splitext(image_path)
+    if archive_type == "zip":
+        import zipfile
+        zip_path = base + ".zip"
+        try:
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.write(image_path, os.path.basename(image_path))
+            os.remove(image_path)
+            return zip_path, None
+        except Exception as e:
+            return None, f"ZIP archive failed: {e}"
+    elif archive_type == "7z":
+        sevenz_path = base + ".7z"
+        try:
+            # Try to use 7z GUI if available
+            sevenz_gui = r"C:\Program Files\7-Zip\7zG.exe"
+            if os.path.exists(sevenz_gui):
+                # 7zG.exe is the 7-Zip GUI version
+                # /a: add to archive, /t7z: 7z format, /m0=lzma2: use LZMA2, /sdel: delete source after archiving
+                # /q: quiet, /y: assume Yes on all queries
+                cmd = [sevenz_gui, 'a', '-t7z', sevenz_path, image_path, '-sdel', '-y']
+                subprocess.Popen(cmd)
+                return sevenz_path, None
+            else:
+                # Fallback to CLI
+                result = subprocess.run([
+                    "7z", "a", "-t7z", sevenz_path, image_path
+                ], capture_output=True, text=True)
+                if result.returncode != 0:
+                    return None, result.stderr
+                os.remove(image_path)
+                return sevenz_path, None
+        except Exception as e:
+            return None, f"7z archive failed: {e}"
+    else:
+        return None, "Unknown archive type"
