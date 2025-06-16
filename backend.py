@@ -3,6 +3,7 @@ import sys
 import platform
 import subprocess
 from datetime import datetime
+import psutil
 
 # --- Backend logic for disk imaging ---
 
@@ -68,16 +69,17 @@ def list_disks_windows():
 
 # Creates a disk image in the specified format, with optional compression.
 # Now supports 'iso' as a raw sector-by-sector image with .iso extension.
-def create_disk_image(disk_info, output_path, progress_callback=None, image_format='img', compress=False):
+def create_disk_image(disk_info, output_path, progress_callback=None, image_format='img', compress=False, buffer_size=None):
     """
     Create a disk image in the specified format, with optional compression.
+    Efficient for mostly-empty disks: skips writing all-zero blocks in raw/img/iso output (creates sparse file if supported).
     Supported formats: 'img' (raw), 'vhd', 'vmdk', 'qcow2', 'iso'.
     If compress=True, output will be compressed (gzip for raw, qemu-img for others).
     For 'iso', creates a raw image with .iso extension (no filesystem conversion).
     """
     import shutil
     device_path = disk_info['device_id']
-    bs = 4 * 1024 * 1024
+    bs = buffer_size if buffer_size is not None else BUFFER_SIZE
     bytes_read = 0
     raw_path = output_path
     # If not raw or iso, create a temp raw file first
@@ -89,7 +91,11 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
                 chunk = disk_file.read(bs)
                 if not chunk:
                     break
-                image_file.write(chunk)
+                # Efficient: skip writing all-zero blocks (sparse file)
+                if chunk.count(0) == len(chunk):
+                    image_file.seek(len(chunk), 1)  # Seek forward, don't write
+                else:
+                    image_file.write(chunk)
                 bytes_read += len(chunk)
                 if progress_callback:
                     progress_callback(bytes_read)
@@ -208,3 +214,33 @@ def archive_image(image_path, archive_type):
             return None, f"7z archive failed: {e}"
     else:
         return None, "Unknown archive type"
+
+def create_disk_clone(src_disk_info, dst_disk_info, progress_callback=None, buffer_size=None):
+    """
+    Clone the entire source physical drive to the destination physical drive.
+    This is a sector-by-sector copy. Both src_disk_info and dst_disk_info must be dicts from list_disks().
+    WARNING: This will overwrite all data on the destination disk.
+    """
+    src_path = src_disk_info['device_id']
+    dst_path = dst_disk_info['device_id']
+    bs = buffer_size if buffer_size is not None else BUFFER_SIZE  # 64MB buffer for max speed
+    try:
+        with open(src_path, 'rb', buffering=0) as src, open(dst_path, 'wb', buffering=0) as dst:
+            while True:
+                chunk = src.read(bs)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                if progress_callback:
+                    progress_callback(len(chunk))
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+def get_max_buffer_size():
+    # Use half of available RAM, capped at 2GB for safety
+    mem = psutil.virtual_memory()
+    max_buf = min(mem.available // 2, 2 * 1024 * 1024 * 1024)
+    return max_buf if max_buf > 0 else 64 * 1024 * 1024
+
+BUFFER_SIZE = get_max_buffer_size()
