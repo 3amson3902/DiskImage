@@ -4,6 +4,10 @@ import platform
 import subprocess
 from datetime import datetime
 import psutil
+import logging
+
+logging.basicConfig(filename='diskimager_backend.log', level=logging.DEBUG, 
+                    format='%(asctime)s %(levelname)s %(message)s')
 
 # --- Backend logic for disk imaging ---
 
@@ -19,11 +23,14 @@ def is_admin():
 # Returns a list of available disks on the system.
 # Dispatches to the correct platform-specific implementation.
 def list_disks():
+    logging.debug('Listing disks')
     system = platform.system()
     if system == "Windows":
-        return list_disks_windows()
+        disks = list_disks_windows()
     else:
-        return []
+        disks = []
+    logging.debug(f'Disks found: {disks}')
+    return disks
 
 # Uses WMIC to enumerate physical disks on Windows.
 # Returns a list of dicts with disk info (name, device_id, model, size).
@@ -77,6 +84,7 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
     If compress=True, output will be compressed (gzip for raw, qemu-img for others).
     For 'iso', creates a raw image with .iso extension (no filesystem conversion).
     """
+    logging.info(f'Creating disk image: disk={disk_info}, out_path={output_path}, format={image_format}, compress={compress}, buffer_size={buffer_size}')
     import shutil
     device_path = disk_info['device_id']
     bs = buffer_size if buffer_size is not None else BUFFER_SIZE
@@ -87,6 +95,7 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
         raw_path = output_path + '.tmp.raw'
     try:
         with open(device_path, 'rb') as disk_file, open(raw_path, 'wb') as image_file:
+            logging.debug('Disk image creation started')
             while True:
                 chunk = disk_file.read(bs)
                 if not chunk:
@@ -116,8 +125,10 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
                 os.rename(gz_path, output_path)
             except Exception as e:
                 return False, f"Compression failed: {e}"
+        logging.info('Disk image creation finished successfully')
         return True, None
     except Exception as e:
+        logging.exception('Exception in create_disk_image')
         return False, str(e)
 
 # Converts a raw disk image to another format using qemu-img.
@@ -151,6 +162,7 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
     If compress=True, use qemu-img's -c option for supported formats (qcow2, vmdk).
     For raw (.img) and iso, use qemu-img to create a sparse raw image.
     """
+    logging.info(f'Creating sparse disk image: disk={disk_info}, out_path={output_path}, format={image_format}, compress={compress}')
     device_path = disk_info['device_id']
     qemu_img = 'qemu-img.exe' if platform.system() == 'Windows' else 'qemu-img'
     # Map 'img' and 'iso' to 'raw' for qemu-img
@@ -166,12 +178,15 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             return False, result.stderr
+        logging.info('Sparse disk image creation finished successfully')
         return True, None
     except Exception as e:
+        logging.exception('Exception in create_disk_image_sparse')
         return False, str(e)
 
 # Archives the given image file as a zip or 7z archive.
 def archive_image(image_path, archive_type):
+    logging.info(f'Archiving image: image_path={image_path}, archive_type={archive_type}')
     """
     Archive the image file using zipfile (for .zip) or 7z (for .7z, requires 7z in PATH).
     Returns (archive_path, None) on success, (None, error) on failure.
@@ -186,8 +201,10 @@ def archive_image(image_path, archive_type):
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.write(image_path, os.path.basename(image_path))
             os.remove(image_path)
+            logging.info('Archiving finished successfully')
             return zip_path, None
         except Exception as e:
+            logging.exception('Exception in archive_image')
             return None, f"ZIP archive failed: {e}"
     elif archive_type == "7z":
         sevenz_path = base + ".7z"
@@ -200,6 +217,7 @@ def archive_image(image_path, archive_type):
                 # /q: quiet, /y: assume Yes on all queries
                 cmd = [sevenz_gui, 'a', '-t7z', sevenz_path, image_path, '-sdel', '-y']
                 subprocess.Popen(cmd)
+                logging.info('Archiving finished successfully')
                 return sevenz_path, None
             else:
                 # Fallback to CLI
@@ -209,8 +227,10 @@ def archive_image(image_path, archive_type):
                 if result.returncode != 0:
                     return None, result.stderr
                 os.remove(image_path)
+                logging.info('Archiving finished successfully')
                 return sevenz_path, None
         except Exception as e:
+            logging.exception('Exception in archive_image')
             return None, f"7z archive failed: {e}"
     else:
         return None, "Unknown archive type"

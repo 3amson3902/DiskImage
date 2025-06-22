@@ -4,6 +4,7 @@ import threading
 import backend
 import sys
 import os
+import logging
 
 class DiskImagerApp(tk.Tk):
     def __init__(self):
@@ -15,6 +16,9 @@ class DiskImagerApp(tk.Tk):
         self.output_path = tk.StringVar()
         self.progress_var = tk.DoubleVar()
         self.status_var = tk.StringVar(value="Ready.")
+        logging.basicConfig(filename='diskimager_gui.log', level=logging.DEBUG, 
+                            format='%(asctime)s %(levelname)s %(message)s')
+        logging.debug('DiskImagerApp initialized')
         self.create_widgets()
         self.refresh_disks()
 
@@ -97,9 +101,11 @@ class DiskImagerApp(tk.Tk):
         self.start_btn.pack(pady=10)
 
     def refresh_disks(self):
+        logging.debug('Refreshing disk list')
         disks = backend.list_disks()
         self.disks = disks
         if not disks:
+            logging.warning('No disks found')
             self.disk_combo['values'] = ["No disks found"]
             self.disk_combo.current(0)
             self.start_btn.config(state=tk.DISABLED)
@@ -108,11 +114,14 @@ class DiskImagerApp(tk.Tk):
             self.disk_combo.current(0)
             self.selected_disk = disks[0]
             self.start_btn.config(state=tk.NORMAL)
+        logging.debug(f'Disks found: {self.disks}')
 
     def on_disk_selected(self, event):
         idx = self.disk_combo.current()
+        logging.debug(f'Disk selected index: {idx}')
         if 0 <= idx < len(self.disks):
             self.selected_disk = self.disks[idx]
+            logging.info(f'Selected disk: {self.selected_disk}')
 
     def browse_file(self):
         ext_map = {"img": ".img", "vhd": ".vhd", "vmdk": ".vmdk", "qcow2": ".qcow2", "iso": ".iso"}
@@ -120,57 +129,76 @@ class DiskImagerApp(tk.Tk):
         default = f"{self.selected_disk['name']}_{backend.datetime.now().strftime('%Y%m%d')}{ext_map.get(fmt, '.img')}" if self.selected_disk else "disk_image.img"
         path = filedialog.asksaveasfilename(defaultextension=ext_map.get(fmt, '.img'), initialfile=default, filetypes=[("All Supported", "*.img *.vhd *.vmdk *.qcow2 *.iso"), ("Raw Images", "*.img"), ("VHD", "*.vhd"), ("VMDK", "*.vmdk"), ("QCOW2", "*.qcow2"), ("ISO", "*.iso"), ("All Files", "*.*")])
         if path:
+            logging.info(f'Output file selected: {path}')
             self.output_path.set(path)
 
     def start_imaging(self):
+        logging.info('Start imaging button pressed')
         if not self.selected_disk:
+            logging.error('No disk selected')
             messagebox.showerror("Error", "No disk selected.")
             return
         out_path = self.output_path.get().strip()
         if not out_path:
+            logging.error('No output file specified')
             messagebox.showerror("Error", "Please specify an output file.")
             return
         if os.path.exists(out_path):
             if not messagebox.askyesno("Overwrite?", f"File '{out_path}' exists. Overwrite?"):
+                logging.info('User declined to overwrite existing file')
                 return
         image_format = self.format_map[self.format_menu.get()]
         use_sparse = self.sparse_var.get()
         use_compress = self.compress_var.get()
         archive_type = self.archive_var.get()
         buffer_size = self.buffer_size_mb.get() * 1024 * 1024
+        logging.debug(f'Imaging params: out_path={out_path}, format={image_format}, sparse={use_sparse}, compress={use_compress}, archive={archive_type}, buffer={buffer_size}')
         self.progress_var.set(0)
         self.status_var.set("Imaging in progress...")
         self.start_btn.config(state=tk.DISABLED)
         threading.Thread(target=self.run_imaging, args=(out_path, image_format, use_sparse, use_compress, archive_type, buffer_size), daemon=True).start()
 
     def run_imaging(self, out_path, image_format, use_sparse, use_compress, archive_type, buffer_size):
+        logging.info(f'Imaging started: {out_path}')
         total_size = self.get_disk_size(self.selected_disk)
         def progress_callback(bytes_read):
             if total_size > 0:
                 percent = (bytes_read / total_size) * 100
                 self.progress_var.set(percent)
-        if use_sparse and image_format in ("qcow2", "vhd", "vmdk"):
-            success, error = backend.create_disk_image_sparse(self.selected_disk, out_path, image_format, use_compress)
-        else:
-            success, error = backend.create_disk_image(self.selected_disk, out_path, progress_callback, image_format, use_compress, buffer_size)
-        if success and archive_type != "none":
-            self.status_var.set("Archiving...")
-            arch_success, arch_error = backend.archive_image(out_path, archive_type)
-            if arch_success:
-                self.status_var.set(f"Imaging and archiving complete: {arch_success}")
+                if int(percent) % 10 == 0:
+                    logging.debug(f'Progress: {percent:.2f}%')
+        try:
+            if use_sparse and image_format in ("qcow2", "vhd", "vmdk"):
+                success, error = backend.create_disk_image_sparse(self.selected_disk, out_path, image_format, use_compress)
             else:
-                self.status_var.set(f"Imaging complete, but archive failed: {arch_error}")
-        elif success:
-            self.status_var.set("Imaging complete.")
-        else:
-            self.status_var.set(f"Error: {error}")
+                success, error = backend.create_disk_image(self.selected_disk, out_path, progress_callback, image_format, use_compress, buffer_size)
+            if success and archive_type != "none":
+                self.status_var.set("Archiving...")
+                logging.info('Archiving image')
+                arch_success, arch_error = backend.archive_image(out_path, archive_type)
+                if arch_success:
+                    self.status_var.set(f"Imaging and archiving complete: {arch_success}")
+                    logging.info(f'Archiving complete: {arch_success}')
+                else:
+                    self.status_var.set(f"Imaging complete, but archive failed: {arch_error}")
+                    logging.error(f'Archive failed: {arch_error}')
+            elif success:
+                self.status_var.set("Imaging complete.")
+                logging.info('Imaging complete')
+            else:
+                self.status_var.set(f"Error: {error}")
+                logging.error(f'Imaging failed: {error}')
+        except Exception as e:
+            self.status_var.set(f"Exception: {e}")
+            logging.exception('Exception during imaging')
         self.start_btn.config(state=tk.NORMAL)
 
     def get_disk_size(self, disk):
         try:
             size_str = disk['size'].split()[0]
             return float(size_str) * (1024**3)
-        except Exception:
+        except Exception as e:
+            logging.error(f'Failed to get disk size: {e}')
             return 0
 
 if __name__ == "__main__":

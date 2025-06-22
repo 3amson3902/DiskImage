@@ -3,6 +3,11 @@ import sys
 import platform
 import subprocess
 from datetime import datetime
+import logging
+
+# Initialize logging
+logging.basicConfig(filename='diskimager_main.log', level=logging.DEBUG, 
+                    format='%(asctime)s %(levelname)s %(message)s')
 
 # --- Platform Agnostic Main Logic ---
 
