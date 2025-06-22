@@ -39,3 +39,12 @@ build/
 Thumbs.db
 __pycache__/backend.cpython-313.pyc
 __pycache__/gui.cpython-313.pyc
+
+# Ignore user config
+config.json
+# Only ignore extracted QEMU/7zip, not archives/installers
+/tools/qemu/*
+/tools/7zip/*
+!tools/*.zip
+!tools/*.7z
+!tools/*.exe

@@ -9,7 +9,7 @@ import zipfile
 import subprocess
 import logging
 
-def archive_image(image_path, archive_type):
+def archive_image(image_path, archive_type, cleanup_tools=False):
     """
     Archive the image file using zipfile (for .zip) or 7z (for .7z, requires 7z in PATH).
     Returns (archive_path, None) on success, (None, error) on failure.
@@ -30,21 +30,14 @@ def archive_image(image_path, archive_type):
     elif archive_type == "7z":
         sevenz_path = base + ".7z"
         try:
-            sevenz_gui = r"C:\Program Files\7-Zip\7zG.exe"
-            if os.path.exists(sevenz_gui):
-                cmd = [sevenz_gui, 'a', '-t7z', sevenz_path, image_path, '-sdel', '-y']
-                subprocess.Popen(cmd)
-                logging.info('Archiving finished successfully')
-                return sevenz_path, None
-            else:
-                result = subprocess.run([
-                    "7z", "a", "-t7z", sevenz_path, image_path
-                ], capture_output=True, text=True)
-                if result.returncode != 0:
-                    return None, result.stderr
+            from backend.sevenzip_utils import extract_with_7zip
+            result = extract_with_7zip(image_path, os.path.dirname(image_path), cleanup_after=cleanup_tools)
+            if isinstance(result, tuple) and result[0]:
                 os.remove(image_path)
                 logging.info('Archiving finished successfully')
                 return sevenz_path, None
+            else:
+                return None, result[1] if isinstance(result, tuple) else '7z archiving failed.'
         except Exception as e:
             logging.exception('Exception in archive_image')
             return None, f"7z archive failed: {e}"

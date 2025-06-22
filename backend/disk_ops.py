@@ -5,6 +5,7 @@ Contains functions for creating disk images, cloning disks, and buffer size logi
 LLM prompt: This module provides robust, low-level disk operations for physical and image disks.
 """
 import logging
+import platform
 
 BUFFER_SIZE = 64 * 1024 * 1024  # 64MB
 
@@ -35,13 +36,10 @@ def create_disk_clone(src_disk_info, dst_disk_info, progress_callback=None, buff
     except Exception as e:
         return False, str(e)
 
-def create_disk_image(disk_info, output_path, progress_callback=None, image_format='img', compress=False, buffer_size=None):
+def create_disk_image(disk_info, output_path, progress_callback=None, image_format='img', compress=False, buffer_size=None, cleanup_tools=False):
     """
     Create a disk image in the specified format, with optional compression.
-    Efficient for mostly-empty disks: skips writing all-zero blocks in raw/img/iso output (creates sparse file if supported).
-    Supported formats: 'img' (raw), 'vhd', 'vmdk', 'qcow2', 'iso'.
-    If compress=True, output will be compressed (gzip for raw, qemu-img for others).
-    For 'iso', creates a raw image with .iso extension (no filesystem conversion).
+    On Windows, always use QEMU for physical disk imaging (\\.\\PhysicalDriveX), not Python file I/O.
     Returns (True, None) on success, (False, error) on failure.
     """
     import os
@@ -51,6 +49,17 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
     bs = buffer_size if buffer_size is not None else BUFFER_SIZE
     bytes_read = 0
     raw_path = output_path
+    is_windows = platform.system() == 'Windows'
+    is_physical = device_path.lower().startswith('\\.\physicaldrive') if is_windows else False
+
+    if is_windows and is_physical:
+        from backend.qemu_utils import create_disk_image_sparse
+        result = create_disk_image_sparse(disk_info, output_path, image_format, compress=compress, cleanup_tools=cleanup_tools)
+        if not result[0]:
+            return False, result[1]
+        logging.info('Disk image creation (QEMU, Windows physical) finished successfully')
+        return True, None
+
     # If not raw or iso, create a temp raw file first
     if image_format not in ('img', 'iso'):
         raw_path = output_path + '.tmp.raw'
@@ -71,10 +80,9 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
                     progress_callback(bytes_read)
         # Convert to requested format if needed
         if image_format not in ('img', 'iso'):
-            from backend.qemu_utils import create_disk_image_sparse, run_qemu_subprocess, find_qemu_img
-            from backend.archive_utils import archive_image
+            from backend.qemu_utils import create_disk_image_sparse
             # Use qemu-img to convert
-            result = create_disk_image_sparse(disk_info, output_path, image_format, compress=compress)
+            result = create_disk_image_sparse(disk_info, output_path, image_format, compress=compress, cleanup_tools=cleanup_tools)
             os.remove(raw_path)
             if not result[0]:
                 return False, result[1]

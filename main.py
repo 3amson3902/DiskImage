@@ -10,6 +10,7 @@ import subprocess
 import logging
 from datetime import datetime
 import traceback
+import json
 
 # Add project root to sys.path for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +20,48 @@ from backend.disk_ops import create_disk_image, create_disk_clone
 from backend.qemu_utils import create_disk_image_sparse
 from backend.archive_utils import archive_image
 from backend.logging_utils import *
+
+# --- Configurations ---
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
+
+DEFAULT_CONFIG = {
+    "cleanup_tools": True,
+    "last_output_dir": "",
+    "theme": "auto",
+    "window_size": [1024, 768]
+}
+
+def load_config():
+    """Load user preferences from config.json, or create with defaults if missing/corrupt."""
+    if not os.path.exists(CONFIG_PATH):
+        save_config(DEFAULT_CONFIG)
+        return DEFAULT_CONFIG.copy()
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        # Fill in any missing defaults
+        for k, v in DEFAULT_CONFIG.items():
+            if k not in config:
+                config[k] = v
+        return config
+    except Exception as e:
+        logging.error(f"Failed to load config.json: {e}")
+        save_config(DEFAULT_CONFIG)
+        return DEFAULT_CONFIG.copy()
+
+def save_config(config):
+    """Save user preferences to config.json."""
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save config.json: {e}")
+
+def update_config(updates):
+    """Update config.json with a dict of changes."""
+    config = load_config()
+    config.update(updates)
+    save_config(config)
 
 # --- Platform/GUI integration and disk listing logic ---
 def is_admin():
@@ -129,9 +172,9 @@ logging.basicConfig(
 
 # --- Main entry point ---
 def main():
-    """Main entry point: launches the GUI. Add CLI entry here if needed."""
-    from gui.app import run_gui
-    run_gui()
+    """Main entry point: launches the PyQt6 GUI. Add CLI entry here if needed."""
+    from gui.pyqt_app import run_pyqt_gui
+    run_pyqt_gui()
 
 if __name__ == "__main__":
     main()
