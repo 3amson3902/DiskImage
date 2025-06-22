@@ -191,9 +191,11 @@ def convert_image_format(src_path, dest_path, image_format, compress=False):
         logging.info(f'Running: {cmd}')
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            return False, result.stderr
+            logging.error(f"qemu-img failed: returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
+            return False, f"qemu-img failed (code {result.returncode}):\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         return True, None
     except Exception as e:
+        logging.exception('Exception in convert_image_format')
         return False, str(e)
 
 # Uses qemu-img to create a sparse image directly from the physical disk, with optional compression.
@@ -219,7 +221,8 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
         logging.info(f'Running: {cmd}')
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            return False, result.stderr
+            logging.error(f"qemu-img failed: returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
+            return False, f"qemu-img failed (code {result.returncode}):\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         return True, None
     except Exception as e:
         logging.exception('Exception in create_disk_image_sparse')
