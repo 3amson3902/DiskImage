@@ -1,0 +1,94 @@
+"""
+qemu_utils.py - QEMU binary management and subprocess utilities for the disk imaging app.
+
+Handles finding qemu-img, just-in-time extraction, and subprocess execution with cleanup.
+LLM prompt: This module manages QEMU dependencies and subprocess calls for disk image conversion.
+"""
+import os
+import shutil
+import zipfile
+import subprocess
+import logging
+
+REQUIRED_QEMU_FILES = [
+    'qemu-img.exe',
+    'libwinpthread-1.dll',
+    'libgcc_s_seh-1.dll',
+    'libstdc++-6.dll',
+    'libglib-2.0-0.dll',
+    'libiconv-2.dll',
+    'libintl-8.dll',
+]
+
+def extract_qemu_deps(archive_path, dest_dir=None):
+    """
+    Extract only the necessary files for qemu-img.exe from a QEMU Windows zip archive into the tools/ directory.
+    Returns a list of extracted files (absolute paths).
+    """
+    if dest_dir is None:
+        dest_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir)
+    extracted = []
+    with zipfile.ZipFile(archive_path, 'r') as zf:
+        all_files = zf.namelist()
+        for req in REQUIRED_QEMU_FILES:
+            matches = [f for f in all_files if f.lower().endswith(req.lower())]
+            if matches:
+                zf.extract(matches[0], dest_dir)
+                src_path = os.path.join(dest_dir, matches[0])
+                dst_path = os.path.join(dest_dir, req)
+                if src_path != dst_path:
+                    shutil.move(src_path, dst_path)
+                extracted.append(dst_path)
+                # Remove empty dirs
+                parent = os.path.dirname(src_path)
+                if parent and os.path.exists(parent) and parent != dest_dir:
+                    try:
+                        os.rmdir(parent)
+                    except Exception:
+                        pass
+    return extracted
+
+def ensure_qemu_present():
+    """
+    Ensure qemu-img.exe and required DLLs are present in tools/. If not, extract them from a QEMU archive in tools/.
+    Returns (cleanup_needed, extracted_files).
+    """
+    tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
+    missing = [f for f in REQUIRED_QEMU_FILES if not os.path.exists(os.path.join(tools_dir, f))]
+    if not missing:
+        return False, []
+    for fname in os.listdir(tools_dir):
+        if fname.lower().endswith('.zip') or fname.lower().endswith('.7z'):
+            archive_path = os.path.join(tools_dir, fname)
+            extracted = extract_qemu_deps(archive_path, tools_dir)
+            return True, extracted
+    raise FileNotFoundError('Required QEMU files missing and no QEMU archive found in tools/.')
+
+def find_qemu_img():
+    """
+    Return the path to qemu-img.exe, extracting it just-in-time if needed.
+    """
+    tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
+    qemu_path = os.path.join(tools_dir, 'qemu-img.exe')
+    if not os.path.exists(qemu_path):
+        ensure_qemu_present()
+    return qemu_path if os.path.exists(qemu_path) else 'qemu-img.exe'
+
+def run_qemu_subprocess(cmd, **kwargs):
+    """
+    Run a qemu-img command, extracting dependencies just-in-time and cleaning up after if needed.
+    Returns the subprocess.CompletedProcess result.
+    """
+    cleanup_needed, extracted_files = ensure_qemu_present()
+    try:
+        result = subprocess.run(cmd, **kwargs)
+    finally:
+        if cleanup_needed:
+            for f in extracted_files:
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+    return result

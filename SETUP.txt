@@ -31,4 +31,21 @@ DiskImager Setup Instructions
 - The tools/ directory is for 3rd party binaries and is also ignored by git.
 - Run as administrator for full disk access on Windows.
 
+5. Troubleshooting & Advanced Usage
+-----------------------------------
+- If imaging fails, check the error message shown in the GUI and in the log files (`diskimager_backend.log`, `diskimager_main.log`).
+- The app now displays and logs both the standard output and error output from `qemu-img.exe` if a failure occurs. This helps diagnose issues such as:
+    - `qemu-img.exe` not found: Ensure it is present in the `tools/` directory or in your system PATH.
+    - Permission denied: Run the app as administrator for full disk access.
+    - Disk in use: Make sure the disk is not being used by another process.
+    - Invalid parameters: Double-check the selected disk and output path.
+- For more details, open the log files in a text editor and look for lines containing `qemu-img failed` or `Imaging failed`.
+- To enable more verbose logging, edit the `logging.basicConfig` line in `main.py` or `backend.py` and set `level=logging.DEBUG` (already set by default).
+- Advanced users:
+    - You can manually run the `qemu-img` command shown in the logs to test or debug outside the app.
+    - You may add custom qemu-img options by editing the backend code if needed.
+    - The app supports archiving images as `.zip` or `.7z` after imaging. Ensure 7-Zip is installed and in PATH for `.7z` support.
+
+If you encounter persistent issues, please provide the relevant log excerpts when seeking help.
+
 For more help, see README.txt in the tools/ directory or contact the project maintainer.
