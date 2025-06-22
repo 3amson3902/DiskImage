@@ -17,22 +17,44 @@ def find_7z_exe():
     sevenzip_dir = os.path.join(tools_dir, '7zip')
     if not os.path.exists(sevenzip_dir):
         os.makedirs(sevenzip_dir, exist_ok=True)
+    
+    # First priority: Check for 7z.exe (command-line version)
     sevenz_path = os.path.join(sevenzip_dir, '7z.exe')
     if os.path.exists(sevenz_path):
         return sevenz_path, True
+    
+    # Second priority: Check for 7zG.exe (GUI version that can work from command line)
+    sevenzg_path = os.path.join(sevenzip_dir, '7zG.exe')
+    if os.path.exists(sevenzg_path):
+        # 7zG.exe can be used for command-line operations
+        return sevenzg_path, True
+    
     # Try to extract from installer if present
     installer = find_7z_installer()
     if installer:
         ok, err = extract_7z_from_installer(installer, sevenzip_dir)
-        if ok and os.path.exists(sevenz_path):
-            return sevenz_path, True
+        if ok:
+            # Check again for 7z.exe after extraction
+            if os.path.exists(sevenz_path):
+                return sevenz_path, True
+            # Fallback to 7zG.exe if available
+            if os.path.exists(sevenzg_path):
+                return sevenzg_path, True
         else:
             return None, False
-    # Try system PATH
+    
+    # Try system PATH for 7z.exe
     for path in os.environ.get('PATH', '').split(os.pathsep):
         exe_path = os.path.join(path, '7z.exe')
         if os.path.exists(exe_path):
             return exe_path, False
+    
+    # Try system PATH for 7za.exe (standalone version)
+    for path in os.environ.get('PATH', '').split(os.pathsep):
+        exe_path = os.path.join(path, '7za.exe')
+        if os.path.exists(exe_path):
+            return exe_path, False
+    
     return None, False
 
 
@@ -50,10 +72,37 @@ def find_7z_installer():
 
 def extract_7z_from_installer(installer_path, dest_dir):
     """
-    Attempt to extract 7z.exe and 7z.dll from the 7-Zip installer using system 7z.exe or by running the installer in silent mode.
+    Attempt to extract 7z.exe and 7z.dll from the 7-Zip installer.
+    First tries to use the existing GUI version if available, then tries system extraction.
     Returns (True, None) on success, (False, error) on failure.
     """
     import time
+    
+    # If we already have 7zG.exe, use it to extract the installer
+    sevenzg_path = os.path.join(dest_dir, '7zG.exe')
+    if os.path.exists(sevenzg_path):
+        try:
+            # Use 7zG.exe to extract the installer
+            result = subprocess.run([sevenzg_path, 'x', installer_path, f'-o{dest_dir}', '-y'], 
+                                  capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                # Look for 7z.exe in extracted files
+                for root, dirs, files in os.walk(dest_dir):
+                    if '7z.exe' in files:
+                        src_path = os.path.join(root, '7z.exe')
+                        dst_path = os.path.join(dest_dir, '7z.exe')
+                        if src_path != dst_path:
+                            shutil.copy(src_path, dst_path)
+                        # Also copy 7z.dll if found
+                        if '7z.dll' in files:
+                            src_dll = os.path.join(root, '7z.dll')
+                            dst_dll = os.path.join(dest_dir, '7z.dll')
+                            if src_dll != dst_dll:
+                                shutil.copy(src_dll, dst_dll)
+                        return True, None
+        except Exception as e:
+            pass  # Fall through to system method
+    
     # Try system 7z.exe first
     for path in os.environ.get('PATH', '').split(os.pathsep):
         sys7z = os.path.join(path, '7z.exe')
@@ -104,17 +153,24 @@ def get_7zip_status_message():
     sevenz, used_tools_dir = find_7z_exe()
     msg = []
     if sevenz:
-        msg.append("7z.exe found: all formats supported (.7z, .zip, .exe)")
+        exe_name = os.path.basename(sevenz)
+        if exe_name == '7zG.exe':
+            msg.append("7-Zip found: Using GUI version (7zG.exe) for command-line operations - all formats supported (.7z, .zip, .exe)")
+        else:
+            msg.append(f"7-Zip found: Using {exe_name} - all formats supported (.7z, .zip, .exe)")
+        
         if not used_tools_dir:
             msg.append(
-                "WARNING: Using system-installed 7z.exe. "
+                "WARNING: Using system-installed 7-Zip. "
                 "For best portability, place 7z.exe (and 7z.dll) from the '7-Zip Extra' package in the ./tools/7zip directory."
             )
     else:
         msg.append(
-            "No 7z.exe found in tools/7zip/ or PATH. "
+            "No 7-Zip executable found in tools/7zip/ or PATH. "
+            "Current tools/7zip/ contents: GUI files only (7zFM.exe, 7zG.exe). "
             "Please download the '7-Zip Extra' package from https://www.7-zip.org/download.html "
-            "and place 7z.exe (and 7z.dll) in the tools/7zip/ directory."
+            "and place 7z.exe (and 7z.dll) in the tools/7zip/ directory, "
+            "or install 7-Zip system-wide."
         )
     return "\n".join(msg)
 
