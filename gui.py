@@ -100,6 +100,10 @@ class DiskImagerApp(tk.Tk):
         self.start_btn = tk.Button(self, text="Start Imaging", command=self.start_imaging, bg="#1976d2", fg="white", font=("Segoe UI", 11, "bold"), activebackground="#1565c0", activeforeground="white", relief=tk.FLAT, padx=20, pady=5)
         self.start_btn.pack(pady=10)
 
+        # Install/Update Python Packages button
+        self.pip_btn = tk.Button(self, text="Install/Update Python Packages", command=self.install_packages, bg="#388e3c", fg="white", font=("Segoe UI", 10, "bold"), activebackground="#2e7d32", activeforeground="white", relief=tk.FLAT, padx=10, pady=3)
+        self.pip_btn.pack(pady=5)
+
     def refresh_disks(self):
         logging.debug('Refreshing disk list')
         disks = backend.list_disks()
@@ -201,10 +205,30 @@ class DiskImagerApp(tk.Tk):
             logging.error(f'Failed to get disk size: {e}')
             return 0
 
-if __name__ == "__main__":
+    def install_packages(self):
+        """Install or update Python packages using pip and requirements.txt."""
+        import subprocess
+        import sys
+        req_path = os.path.join(os.path.dirname(sys.executable), '..', 'requirements.txt')
+        req_path = os.path.abspath(req_path)
+        python_exe = sys.executable
+        pip_cmd = [python_exe, '-m', 'pip', 'install', '--upgrade', '-r', req_path]
+        try:
+            result = subprocess.run(pip_cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                messagebox.showinfo("Success", f"Packages installed/updated successfully.\n\n{result.stdout}")
+            else:
+                messagebox.showerror("Error", f"pip failed:\n{result.stderr}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Exception running pip:\n{e}")
+
+def run_gui():
     if not backend.is_admin():
         tk.Tk().withdraw()
         messagebox.showerror("Error", "This script requires administrator privileges. Run as administrator.")
         sys.exit(1)
     app = DiskImagerApp()
     app.mainloop()
+
+if __name__ == "__main__":
+    run_gui()
