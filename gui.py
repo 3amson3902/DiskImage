@@ -68,14 +68,16 @@ class DiskImagerApp(tk.Tk):
         tk.Checkbutton(self, text="Enable compression (smaller output, slower)", variable=self.compress_var).pack(pady=2)
 
         # Archive option
-        self.archive_var = tk.StringVar(value="none")
-        archive_frame = tk.Frame(self)
-        archive_frame.pack(pady=2)
-        tk.Label(archive_frame, text="Archive format:").pack(side=tk.LEFT)
-        archive_menu = ttk.Combobox(archive_frame, state="readonly", width=6, textvariable=self.archive_var)
-        archive_menu['values'] = ["none", "zip", "7z"]
-        archive_menu.current(0)
-        archive_menu.pack(side=tk.LEFT, padx=5)
+        self.archive_after_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(self, text="Archive image after creation", variable=self.archive_after_var).pack(pady=2)
+        self.archive_type_var = tk.StringVar(value="7z")  # Default to 7z
+        archive_type_frame = tk.Frame(self)
+        archive_type_frame.pack(pady=2)
+        tk.Label(archive_type_frame, text="Archive type:").pack(side=tk.LEFT)
+        archive_type_menu = ttk.Combobox(archive_type_frame, state="readonly", width=6, textvariable=self.archive_type_var)
+        archive_type_menu['values'] = ["zip", "7z"]
+        archive_type_menu.current(1)  # Set default to 7z
+        archive_type_menu.pack(side=tk.LEFT, padx=5)
 
         # Buffer size option
         self.buffer_size_mb = tk.IntVar(value=64)
@@ -154,15 +156,16 @@ class DiskImagerApp(tk.Tk):
         image_format = self.format_map[self.format_menu.get()]
         use_sparse = self.sparse_var.get()
         use_compress = self.compress_var.get()
-        archive_type = self.archive_var.get()
+        archive_after = self.archive_after_var.get()
+        archive_type = self.archive_type_var.get() if archive_after else None
         buffer_size = self.buffer_size_mb.get() * 1024 * 1024
         logging.debug(f'Imaging params: out_path={out_path}, format={image_format}, sparse={use_sparse}, compress={use_compress}, archive={archive_type}, buffer={buffer_size}')
         self.progress_var.set(0)
         self.status_var.set("Imaging in progress...")
         self.start_btn.config(state=tk.DISABLED)
-        threading.Thread(target=self.run_imaging, args=(out_path, image_format, use_sparse, use_compress, archive_type, buffer_size), daemon=True).start()
+        threading.Thread(target=self.run_imaging, args=(out_path, image_format, use_sparse, use_compress, archive_after, archive_type, buffer_size), daemon=True).start()
 
-    def run_imaging(self, out_path, image_format, use_sparse, use_compress, archive_type, buffer_size):
+    def run_imaging(self, out_path, image_format, use_sparse, use_compress, archive_after, archive_type, buffer_size):
         logging.info(f'Imaging started: {out_path}')
         total_size = self.get_disk_size(self.selected_disk)
         def progress_callback(bytes_read):
@@ -176,7 +179,7 @@ class DiskImagerApp(tk.Tk):
                 success, error = backend.create_disk_image_sparse(self.selected_disk, out_path, image_format, use_compress)
             else:
                 success, error = backend.create_disk_image(self.selected_disk, out_path, progress_callback, image_format, use_compress, buffer_size)
-            if success and archive_type != "none":
+            if success and archive_after and archive_type:
                 self.status_var.set("Archiving...")
                 logging.info('Archiving image')
                 arch_success, arch_error = backend.archive_image(out_path, archive_type)

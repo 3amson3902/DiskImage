@@ -34,6 +34,7 @@ def list_disks():
 # Uses WMIC to enumerate physical disks on Windows.
 # Returns a list of dicts with disk info (name, device_id, model, size).
 def list_disks_windows():
+    logging.debug('Attempting to list disks with WMIC')
     try:
         result = subprocess.run(
             ["wmic", "diskdrive", "get", "DeviceID,Model,Size,Caption", "/format:csv"],
@@ -42,8 +43,11 @@ def list_disks_windows():
             check=True,
             encoding='utf-8-sig'
         )
+        logging.debug(f'WMIC stdout: {result.stdout}')
+        logging.debug(f'WMIC stderr: {result.stderr}')
         lines = result.stdout.strip().split('\n')
         if len(lines) < 2:
+            logging.warning('WMIC returned less than 2 lines')
             return []
         headers = [h.strip() for h in lines[0].split(',')]
         try:
@@ -52,6 +56,7 @@ def list_disks_windows():
             model_idx = headers.index("Model")
             size_idx = headers.index("Size")
         except ValueError:
+            logging.warning(f'WMIC header parse failed: {headers}')
             return []
         disks = []
         for line in lines[1:]:
@@ -69,9 +74,38 @@ def list_disks_windows():
                 "model": parts[model_idx],
                 "size": f"{size_gb} GB"
             })
+        logging.debug(f'Disks found by WMIC: {disks}')
         return disks
-    except Exception:
-        return []
+    except Exception as e:
+        import traceback
+        logging.error(f'WMIC failed: {e}\n{traceback.format_exc()}')
+        # Fallback to PowerShell Get-PhysicalDisk
+        try:
+            ps_cmd = [
+                "powershell", "-Command",
+                "Get-PhysicalDisk | Select-Object FriendlyName,DeviceId,Size,MediaType | ConvertTo-Json"
+            ]
+            result = subprocess.run(ps_cmd, capture_output=True, text=True, check=True)
+            logging.debug(f'PowerShell stdout: {result.stdout}')
+            logging.debug(f'PowerShell stderr: {result.stderr}')
+            import json
+            disks_info = json.loads(result.stdout)
+            if isinstance(disks_info, dict):
+                disks_info = [disks_info]
+            disks = []
+            for d in disks_info:
+                size_gb = round(int(d.get('Size', 0)) / (1024**3), 2) if d.get('Size') else 'Unknown'
+                disks.append({
+                    "name": d.get('FriendlyName', f"PhysicalDrive{d.get('DeviceId','?')}") or f"PhysicalDrive{d.get('DeviceId','?')}",
+                    "device_id": f"\\.\\PhysicalDrive{d.get('DeviceId','?')}",
+                    "model": d.get('MediaType', 'Unknown'),
+                    "size": f"{size_gb} GB"
+                })
+            logging.debug(f'Disks found by PowerShell: {disks}')
+            return disks
+        except Exception as e2:
+            logging.error(f'PowerShell disk listing failed: {e2}\n{traceback.format_exc()}')
+            return []
 
 # Creates a disk image in the specified format, with optional compression.
 # Now supports 'iso' as a raw sector-by-sector image with .iso extension.
@@ -130,6 +164,14 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
         logging.exception('Exception in create_disk_image')
         return False, str(e)
 
+def find_qemu_img():
+    # Prefer tools/qemu-img.exe at the project root (3rd party tools)
+    project_tools = os.path.join(os.path.dirname(__file__), 'tools', 'qemu-img.exe')
+    if os.path.exists(project_tools):
+        return project_tools
+    # Fallback to PATH
+    return 'qemu-img.exe'
+
 # Converts a raw disk image to another format using qemu-img.
 # Supported formats: vhd, vmdk, qcow2.
 # If compress=True, uses qemu-img's -c option for supported formats.
@@ -138,7 +180,7 @@ def convert_image_format(src_path, dest_path, image_format, compress=False):
     Convert a raw image to the specified format using qemu-img.
     If compress=True, use qemu-img's -c option for supported formats (qcow2, vmdk).
     """
-    qemu_img = 'qemu-img.exe' if platform.system() == 'Windows' else 'qemu-img'
+    qemu_img = find_qemu_img()
     if image_format not in ['vhd', 'vmdk', 'qcow2']:
         return False, f"Unsupported format: {image_format}"
     try:
@@ -146,6 +188,7 @@ def convert_image_format(src_path, dest_path, image_format, compress=False):
         if compress and image_format in ['qcow2', 'vmdk']:
             cmd.append('-c')
         cmd += [src_path, dest_path]
+        logging.info(f'Running: {cmd}')
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             return False, result.stderr
@@ -161,9 +204,8 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
     If compress=True, use qemu-img's -c option for supported formats (qcow2, vmdk).
     For raw (.img) and iso, use qemu-img to create a sparse raw image.
     """
-    logging.info(f'Creating sparse disk image: disk={disk_info}, out_path={output_path}, format={image_format}, compress={compress}')
     device_path = disk_info['device_id']
-    qemu_img = 'qemu-img.exe' if platform.system() == 'Windows' else 'qemu-img'
+    qemu_img = find_qemu_img()
     # Map 'img' and 'iso' to 'raw' for qemu-img
     if image_format in ['img', 'iso']:
         out_fmt = 'raw'
@@ -174,10 +216,10 @@ def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compr
         if compress and out_fmt in ['qcow2', 'vmdk']:
             cmd.append('-c')
         cmd += [device_path, output_path]
+        logging.info(f'Running: {cmd}')
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             return False, result.stderr
-        logging.info('Sparse disk image creation finished successfully')
         return True, None
     except Exception as e:
         logging.exception('Exception in create_disk_image_sparse')
