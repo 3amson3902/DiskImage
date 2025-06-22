@@ -68,7 +68,7 @@ def create_disk_image(disk_info, output_path, progress_callback=None, image_form
                 qemu_img = os.path.join(temp_qemu_dir, 'qemu-img.exe')
                 # Map 'img' and 'iso' to 'raw' for qemu-img
                 out_fmt = 'raw' if image_format in ['img', 'iso'] else image_format
-                cmd = [qemu_img, 'convert', '-O', out_fmt, '-S', '4096']
+                cmd = [qemu_img, 'convert', '-p', '-O', out_fmt, '-S', '4096']
                 if compress and out_fmt in ['qcow2', 'vmdk']:
                     cmd.append('-c')
                 cmd += [device_path, output_path]

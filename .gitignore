@@ -48,3 +48,8 @@ config.json
 !tools/*.zip
 !tools/*.7z
 !tools/*.exe
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
