@@ -9,6 +9,8 @@ import shutil
 import zipfile
 import subprocess
 import logging
+import platform
+from backend.sevenzip_utils import find_7z_exe, extract_with_7zip
 
 REQUIRED_QEMU_FILES = [
     'qemu-img.exe',
@@ -50,31 +52,59 @@ def extract_qemu_deps(archive_path, dest_dir=None):
                         pass
     return extracted
 
+def find_qemu_archive():
+    """
+    Find a QEMU archive (.zip, .7z, or .exe) in the tools/ directory.
+    """
+    tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
+    for fname in os.listdir(tools_dir):
+        if fname.lower().endswith(('.zip', '.7z', '.exe')):
+            return os.path.join(tools_dir, fname)
+    return None
+
 def ensure_qemu_present():
     """
-    Ensure qemu-img.exe and required DLLs are present in tools/. If not, extract them from a QEMU archive in tools/.
+    Ensure qemu-img.exe and required DLLs are present in tools/. If not, extract them from a QEMU archive or .exe installer in tools/.
     Returns (cleanup_needed, extracted_files).
     """
     tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
     missing = [f for f in REQUIRED_QEMU_FILES if not os.path.exists(os.path.join(tools_dir, f))]
     if not missing:
         return False, []
-    for fname in os.listdir(tools_dir):
-        if fname.lower().endswith('.zip') or fname.lower().endswith('.7z'):
-            archive_path = os.path.join(tools_dir, fname)
-            extracted = extract_qemu_deps(archive_path, tools_dir)
-            return True, extracted
-    raise FileNotFoundError('Required QEMU files missing and no QEMU archive found in tools/.')
+    qemu_archive = find_qemu_archive()
+    if not qemu_archive:
+        raise FileNotFoundError('Required QEMU files missing and no QEMU archive found in tools/.')
+    ext = os.path.splitext(qemu_archive)[1].lower()
+    # Set extractor preference for 7zip utils
+    if ext == '.exe':
+        ext_preference = [find_7z_exe]
+    elif ext == '.7z':
+        ext_preference = [find_7z_exe]
+    elif ext == '.zip':
+        ext_preference = [find_7z_exe]
+    else:
+        raise RuntimeError(f'Unsupported QEMU archive type: {ext}')
+    ok, err = extract_with_7zip(qemu_archive, tools_dir, ext_preference)
+    if ok:
+        return False, []
+    else:
+        raise RuntimeError(f'QEMU extraction failed: {err}')
 
 def find_qemu_img():
     """
-    Return the path to qemu-img.exe, extracting it just-in-time if needed.
+    Return the path to qemu-img (cross-platform):
+    - On Windows, use tools/qemu-img.exe and extract from ZIP if needed.
+    - On Linux/macOS, use system qemu-img from PATH.
     """
-    tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
-    qemu_path = os.path.join(tools_dir, 'qemu-img.exe')
-    if not os.path.exists(qemu_path):
-        ensure_qemu_present()
-    return qemu_path if os.path.exists(qemu_path) else 'qemu-img.exe'
+    if platform.system() == "Windows":
+        tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools')
+        qemu_path = os.path.join(tools_dir, 'qemu-img.exe')
+        if not os.path.exists(qemu_path):
+            ensure_qemu_present()
+        return qemu_path if os.path.exists(qemu_path) else 'qemu-img.exe'
+    else:
+        # On Linux/macOS, just use system qemu-img
+        return 'qemu-img'
 
 def run_qemu_subprocess(cmd, **kwargs):
     """

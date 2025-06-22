@@ -1,6 +1,6 @@
 # backend/__init__.py
 """
-Backend package for the portable disk imaging app.
+Backend package for DiskImage.
 
 Imports and exposes disk_ops, qemu_utils, archive_utils, and logging_utils for easy access.
 """

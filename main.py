@@ -1,26 +1,24 @@
 """
 main.py - Unified entry point and backend logic for the disk imaging app.
 
-This file provides platform/GUI integration, disk listing, and imports all core disk, QEMU, and archive operations from the backend package modules.
-LLM prompt: This file is the main entry point and backend for the portable disk imaging app.
+Provides platform/GUI integration, disk listing, and imports all core disk, QEMU, and archive operations from the backend package modules.
 """
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import platform
 import subprocess
-from datetime import datetime
 import logging
-import gui
-from backend.disk_ops import *
-from backend.qemu_utils import *
-from backend.archive_utils import *
-from backend.logging_utils import *
+from datetime import datetime
+import traceback
 
-# Export backend functions for GUI import
+# Add project root to sys.path for local imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# --- Backend imports ---
 from backend.disk_ops import create_disk_image, create_disk_clone
 from backend.qemu_utils import create_disk_image_sparse
 from backend.archive_utils import archive_image
+from backend.logging_utils import *
 
 # --- Platform/GUI integration and disk listing logic ---
 def is_admin():
@@ -50,7 +48,6 @@ def list_disks_windows():
             ["wmic", "diskdrive", "get", "DeviceID,Model,Size,Caption", "/format:csv"],
             capture_output=True,
             text=True,
-            check=True,
             encoding='utf-8-sig'
         )
         logging.debug(f'WMIC stdout: {result.stdout}')
@@ -86,43 +83,56 @@ def list_disks_windows():
             })
         logging.debug(f'Disks found by WMIC: {disks}')
         return disks
-    except Exception as e:
-        import traceback
-        logging.error(f'WMIC failed: {e}\n{traceback.format_exc()}')
+    except FileNotFoundError as e:
+        logging.warning(f"WMIC not found, falling back to PowerShell: {e}")
         # Fallback to PowerShell Get-PhysicalDisk
-        try:
-            ps_cmd = [
-                "powershell", "-Command",
-                "Get-PhysicalDisk | Select-Object FriendlyName,DeviceId,Size,MediaType | ConvertTo-Json"
-            ]
-            result = subprocess.run(ps_cmd, capture_output=True, text=True, check=True)
-            logging.debug(f'PowerShell stdout: {result.stdout}')
-            logging.debug(f'PowerShell stderr: {result.stderr}')
-            import json
-            disks_info = json.loads(result.stdout)
-            if isinstance(disks_info, dict):
-                disks_info = [disks_info]
-            disks = []
-            for d in disks_info:
-                size_gb = round(int(d.get('Size', 0)) / (1024**3), 2) if d.get('Size') else 'Unknown'
-                disks.append({
-                    "name": d.get('FriendlyName', f"PhysicalDrive{d.get('DeviceId','?')}") or f"PhysicalDrive{d.get('DeviceId','?')}",
-                    "device_id": f"\\.\\PhysicalDrive{d.get('DeviceId','?')}",
-                    "model": d.get('MediaType', 'Unknown'),
-                    "size": f"{size_gb} GB"
-                })
-            logging.debug(f'Disks found by PowerShell: {disks}')
-            return disks
-        except Exception as e2:
-            logging.error(f'PowerShell disk listing failed: {e2}\n{traceback.format_exc()}')
-            return []
+        return _list_disks_powershell()
+    except Exception as e:
+        logging.error(f"Unexpected error in WMIC disk listing: {e}")
+        return _list_disks_powershell()
 
-# Initialize logging
-logging.basicConfig(filename='diskimager_main.log', level=logging.DEBUG, 
-                    format='%(asctime)s %(levelname)s %(message)s')
+def _list_disks_powershell():
+    """Helper: Use PowerShell to enumerate disks on Windows."""
+    try:
+        ps_cmd = [
+            "powershell", "-Command",
+            "Get-PhysicalDisk | Select-Object FriendlyName,DeviceId,Size,MediaType | ConvertTo-Json"
+        ]
+        result = subprocess.run(ps_cmd, capture_output=True, text=True, check=True)
+        logging.debug(f'PowerShell stdout: {result.stdout}')
+        logging.debug(f'PowerShell stderr: {result.stderr}')
+        import json
+        disks_info = json.loads(result.stdout)
+        if isinstance(disks_info, dict):
+            disks_info = [disks_info]
+        disks = []
+        for d in disks_info:
+            size_gb = round(int(d.get('Size', 0)) / (1024**3), 2) if d.get('Size') else 'Unknown'
+            disks.append({
+                "name": d.get('FriendlyName', f"PhysicalDrive{d.get('DeviceId','?')}") or f"PhysicalDrive{d.get('DeviceId','?')}",
+                "device_id": f"\\.\\PhysicalDrive{d.get('DeviceId','?')}",
+                "model": d.get('MediaType', 'Unknown'),
+                "size": f"{size_gb} GB"
+            })
+        logging.debug(f'Disks found by PowerShell: {disks}')
+        return disks
+    except Exception as e2:
+        logging.error(f'PowerShell disk listing failed: {e2}\n{traceback.format_exc()}')
+        return []
 
+# --- Logging setup ---
+logging.basicConfig(
+    filename='diskimager_main.log',
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
+# --- Main entry point ---
 def main():
-    gui.run_gui()
+    """Main entry point: launches the GUI. Add CLI entry here if needed."""
+    from gui.app import run_gui
+    run_gui()
 
 if __name__ == "__main__":
     main()
+# Optionally, add CLI entry point here in the future
