@@ -3,8 +3,6 @@ import sys
 import platform
 import subprocess
 from datetime import datetime
-import psutil
-
 # --- Backend logic for disk imaging ---
 
 # Checks if the script is running with administrator privileges.
@@ -238,9 +236,7 @@ def create_disk_clone(src_disk_info, dst_disk_info, progress_callback=None, buff
         return False, str(e)
 
 def get_max_buffer_size():
-    # Use half of available RAM, capped at 2GB for safety
-    mem = psutil.virtual_memory()
-    max_buf = min(mem.available // 2, 2 * 1024 * 1024 * 1024)
-    return max_buf if max_buf > 0 else 64 * 1024 * 1024
+    # Fixed 64MB buffer size for embedded Python version
+    return 64 * 1024 * 1024  # 64MB
 
 BUFFER_SIZE = get_max_buffer_size()
