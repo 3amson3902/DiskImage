@@ -92,3 +92,32 @@ def run_qemu_subprocess(cmd, **kwargs):
                 except Exception:
                     pass
     return result
+
+def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compress=False):
+    """
+    Use qemu-img to create a sparse image directly from the physical disk.
+    If compress=True, use qemu-img's -c option for supported formats (qcow2, vmdk).
+    For raw (.img) and iso, use qemu-img to create a sparse raw image.
+    Returns (True, None) on success, (False, error) on failure.
+    """
+    device_path = disk_info['device_id']
+    qemu_img = find_qemu_img()
+    # Map 'img' and 'iso' to 'raw' for qemu-img
+    if image_format in ['img', 'iso']:
+        out_fmt = 'raw'
+    else:
+        out_fmt = image_format
+    try:
+        cmd = [qemu_img, 'convert', '-O', out_fmt, '-S', '4096']
+        if compress and out_fmt in ['qcow2', 'vmdk']:
+            cmd.append('-c')
+        cmd += [device_path, output_path]
+        logging.info(f'Running: {cmd}')
+        result = run_qemu_subprocess(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logging.error(f"qemu-img failed: returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
+            return False, f"qemu-img failed (code {result.returncode}):\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        return True, None
+    except Exception as e:
+        logging.exception('Exception in create_disk_image_sparse')
+        return False, str(e)

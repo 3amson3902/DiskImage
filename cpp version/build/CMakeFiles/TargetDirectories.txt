@@ -1,2 +1,0 @@
-C:/Git-Clone/DiskImage/cpp version/build/CMakeFiles/edit_cache.dir
-C:/Git-Clone/DiskImage/cpp version/build/CMakeFiles/rebuild_cache.dir

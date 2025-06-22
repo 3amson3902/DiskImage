@@ -1,10 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
-import backend
+from main import is_admin, list_disks, create_disk_image, create_disk_image_sparse, archive_image
 import sys
 import os
 import logging
+import datetime
 
 class DiskImagerApp(tk.Tk):
     def __init__(self):
@@ -108,7 +109,7 @@ class DiskImagerApp(tk.Tk):
 
     def refresh_disks(self):
         logging.debug('Refreshing disk list')
-        disks = backend.list_disks()
+        disks = list_disks()
         self.disks = disks
         if not disks:
             logging.warning('No disks found')
@@ -132,7 +133,7 @@ class DiskImagerApp(tk.Tk):
     def browse_file(self):
         ext_map = {"img": ".img", "vhd": ".vhd", "vmdk": ".vmdk", "qcow2": ".qcow2", "iso": ".iso"}
         fmt = self.format_map[self.format_menu.get()]
-        default = f"{self.selected_disk['name']}_{backend.datetime.now().strftime('%Y%m%d')}{ext_map.get(fmt, '.img')}" if self.selected_disk else "disk_image.img"
+        default = f"{self.selected_disk['name']}_{datetime.datetime.now().strftime('%Y%m%d')}{ext_map.get(fmt, '.img')}" if self.selected_disk else "disk_image.img"
         path = filedialog.asksaveasfilename(defaultextension=ext_map.get(fmt, '.img'), initialfile=default, filetypes=[("All Supported", "*.img *.vhd *.vmdk *.qcow2 *.iso"), ("Raw Images", "*.img"), ("VHD", "*.vhd"), ("VMDK", "*.vmdk"), ("QCOW2", "*.qcow2"), ("ISO", "*.iso"), ("All Files", "*.*")])
         if path:
             logging.info(f'Output file selected: {path}')
@@ -176,13 +177,13 @@ class DiskImagerApp(tk.Tk):
                     logging.debug(f'Progress: {percent:.2f}%')
         try:
             if use_sparse and image_format in ("qcow2", "vhd", "vmdk"):
-                success, error = backend.create_disk_image_sparse(self.selected_disk, out_path, image_format, use_compress)
+                success, error = create_disk_image_sparse(self.selected_disk, out_path, image_format, use_compress)
             else:
-                success, error = backend.create_disk_image(self.selected_disk, out_path, progress_callback, image_format, use_compress, buffer_size)
+                success, error = create_disk_image(self.selected_disk, out_path, progress_callback, image_format, use_compress, buffer_size)
             if success and archive_after and archive_type:
                 self.status_var.set("Archiving...")
                 logging.info('Archiving image')
-                arch_success, arch_error = backend.archive_image(out_path, archive_type)
+                arch_success, arch_error = archive_image(out_path, archive_type)
                 if arch_success:
                     self.status_var.set(f"Imaging and archiving complete: {arch_success}")
                     logging.info(f'Archiving complete: {arch_success}')
@@ -226,7 +227,7 @@ class DiskImagerApp(tk.Tk):
             messagebox.showerror("Error", f"Exception running pip:\n{e}")
 
 def run_gui():
-    if not backend.is_admin():
+    if not is_admin():
         tk.Tk().withdraw()
         messagebox.showerror("Error", "This script requires administrator privileges. Run as administrator.")
         sys.exit(1)
