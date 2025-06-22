@@ -3,7 +3,7 @@ app_entry.py - Main application entry logic for DiskImage.
 Handles GUI launch, QEMU extraction, and cleanup.
 """
 import logging
-from backend.qemu_utils import ensure_qemu_present
+from backend.qemu_utils import init_qemu
 from backend.cleanup_utils import cleanup_qemu_files
 from backend.logging_utils import setup_logging
 from backend.config_utils import load_config
@@ -12,7 +12,7 @@ def run_app():
     """Main entry point: launches the PyQt6 GUI. Add CLI entry here if needed."""
     setup_logging()
     try:
-        ensure_qemu_present()
+        init_qemu()
         logging.info("QEMU dependencies extracted at startup.")
     except Exception as e:
         logging.error(f"QEMU extraction failed at startup: {e}")

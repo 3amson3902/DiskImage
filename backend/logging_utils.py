@@ -5,7 +5,6 @@ Provides robust error/debug logging configuration for all modules.
 LLM prompt: This module sets up and manages logging for the app and its submodules.
 """
 import logging
-import os
 
 def setup_logging(logfile='diskimage.log', level=logging.INFO):
     """

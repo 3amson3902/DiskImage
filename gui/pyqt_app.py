@@ -147,7 +147,7 @@ class DiskImagerWindow(QMainWindow):
         layout.addWidget(self.status_label)
         # Start
         self.start_btn = QPushButton("Start Imaging")
-        self.start_btn.clicked.connect(self.start_imaging)
+        self.start_btn.clicked.connect(self.handle_start_imaging)
         layout.addWidget(self.start_btn)
         central.setLayout(layout)
 
@@ -198,7 +198,7 @@ class DiskImagerWindow(QMainWindow):
             self.config["last_output_dir"] = path
             save_config(self.config)
 
-    def start_imaging(self):
+    def handle_start_imaging(self):
         if not self.selected_disk:
             QMessageBox.critical(self, "Error", "No disk selected.")
             return
@@ -218,13 +218,26 @@ class DiskImagerWindow(QMainWindow):
         buffer_size = self.buffer_spin.value() * 1024 * 1024
         cleanup_tools = self.cleanup_cb.isChecked()
         self.progress.setValue(0)
+        self.progress.setMaximum(100)
         self.status_label.setPlainText("Imaging in progress...")
         self.start_btn.setEnabled(False)
         self.thread = ImagingThread(self.selected_disk, out_path, image_format, use_sparse, use_compress, archive_after, archive_type, buffer_size, cleanup_tools)
-        self.thread.progress.connect(self.progress.setValue)
+        self.thread.progress.connect(self.update_progress)
         self.thread.finished.connect(self.on_imaging_finished)
-        self.thread.log.connect(self.append_log)  # Connect log signal
+        self.thread.log.connect(self.append_log)
         self.thread.start()
+
+    def update_progress(self, percent):
+        # Clamp percent to [0, 100] and update progress bar
+        try:
+            val = int(percent)
+            if val < 0:
+                val = 0
+            elif val > 100:
+                val = 100
+            self.progress.setValue(val)
+        except Exception:
+            pass
 
     def append_log(self, text):
         if text:

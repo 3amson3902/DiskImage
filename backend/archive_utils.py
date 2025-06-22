@@ -6,7 +6,6 @@ LLM prompt: This module provides user-friendly archiving and cleanup for disk im
 """
 import os
 import zipfile
-import subprocess
 import logging
 
 def archive_image(image_path, archive_type, cleanup_tools=False):
@@ -16,6 +15,7 @@ def archive_image(image_path, archive_type, cleanup_tools=False):
     """
     logging.info(f'Archiving image: image_path={image_path}, archive_type={archive_type}')
     base, ext = os.path.splitext(image_path)
+
     if archive_type == "zip":
         zip_path = base + ".zip"
         try:

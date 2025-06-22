@@ -10,7 +10,6 @@ import zipfile
 import subprocess
 import logging
 import platform
-import tempfile
 from backend.sevenzip_utils import find_7z_exe, extract_with_7zip
 
 REQUIRED_QEMU_FILES = [
@@ -22,6 +21,13 @@ REQUIRED_QEMU_FILES = [
     'libiconv-2.dll',
     'libintl-8.dll',
 ]
+
+def list_qemu_dir_files():
+    """Return a list of files in tools/qemu/ for debugging missing DLLs."""
+    tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools', 'qemu')
+    if not os.path.exists(tools_dir):
+        return []
+    return os.listdir(tools_dir)
 
 def extract_qemu_deps(archive_path, dest_dir=None):
     """
@@ -88,7 +94,7 @@ def find_qemu_archive():
     candidates.sort(key=sort_key)
     return candidates[0][2]
 
-def ensure_qemu_present():
+def init_qemu():
     """
     Ensure qemu-img.exe and required DLLs are present in tools/qemu/.
     If not, extract them from a QEMU archive or .exe installer in tools/.
@@ -168,7 +174,7 @@ def find_qemu_img():
         tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools', 'qemu')
         qemu_path = os.path.abspath(os.path.join(tools_dir, 'qemu-img.exe'))
         if not os.path.exists(qemu_path):
-            ensure_qemu_present()
+            init_qemu()
         if not os.path.exists(qemu_path):
             raise FileNotFoundError(f"qemu-img.exe not found in {tools_dir}")
         return qemu_path
@@ -176,92 +182,41 @@ def find_qemu_img():
         # On Linux/macOS, just use system qemu-img
         return 'qemu-img'
 
-def run_qemu_subprocess(cmd, cleanup_tools=False, **kwargs):
+def run_qemu_wincmd(cmd, cleanup_tools=False, **kwargs):
     """
-    Run a qemu-img command, extracting dependencies just-in-time to a temp dir and cleaning up after if needed.
+    Run a qemu-img command, using the persistent tools/qemu directory for dependencies.
     Returns the subprocess.CompletedProcess result.
     """
-    import shutil
-    import atexit
-    # Use a temp dir for QEMU files
-    with tempfile.TemporaryDirectory() as temp_qemu_dir:
-        # Patch ensure_qemu_present to extract to temp dir
-        def ensure_temp_qemu():
-            # Use the same logic as ensure_qemu_present, but always extract to temp_qemu_dir
-            qemu_archive = find_qemu_archive()
-            if not qemu_archive:
-                raise FileNotFoundError('Required QEMU files missing and no QEMU archive found in tools/.')
-            ext = os.path.splitext(qemu_archive)[1].lower()
-            if ext == '.zip':
-                extracted = extract_qemu_deps(qemu_archive, temp_qemu_dir)
-            elif ext == '.7z' or ext == '.exe':
-                ext_preference = [find_7z_exe]
-                ok, err = extract_with_7zip(qemu_archive, temp_qemu_dir, ext_preference)
-                if not ok:
-                    raise RuntimeError(f'QEMU extraction failed: {err}')
-                extracted = [os.path.join(temp_qemu_dir, f) for f in REQUIRED_QEMU_FILES if os.path.exists(os.path.join(temp_qemu_dir, f))]
-            else:
-                raise RuntimeError(f'Unsupported QEMU archive type: {ext}')
-            missing_after = [f for f in REQUIRED_QEMU_FILES if not os.path.exists(os.path.join(temp_qemu_dir, f))]
-            if missing_after:
-                raise RuntimeError(f'QEMU extraction failed, missing: {missing_after}')
-            return extracted
-        ensure_temp_qemu()
-        # Patch cmd to use qemu-img.exe from temp dir
-        if cmd[0].endswith('qemu-img.exe'):
-            cmd[0] = os.path.join(temp_qemu_dir, 'qemu-img.exe')
-        # Set working dir to temp_qemu_dir for DLL loading
-        kwargs.setdefault('cwd', temp_qemu_dir)
-        result = subprocess.run(cmd, **kwargs)
-        # Temp dir is auto-cleaned
+    # Use ./tools/qemu as the working directory for QEMU files
+    qemu_dir = os.path.join(os.path.dirname(__file__), '..', 'tools', 'qemu')
+    if cmd[0].endswith('qemu-img.exe'):
+        cmd[0] = os.path.join(qemu_dir, 'qemu-img.exe')
+    kwargs.setdefault('cwd', qemu_dir)
+    result = subprocess.run(cmd, **kwargs)
     return result
 
-def create_disk_image_sparse(disk_info, output_path, image_format='qcow2', compress=False, cleanup_tools=False):
+def run_qemu_win(device_path, output_path, image_format, compress):
     """
-    Use qemu-img to create a sparse image directly from the physical disk.
-    If compress=True, use qemu-img's -c option for supported formats (qcow2, vmdk).
-    For raw (.img) and iso, use qemu-img to create a sparse raw image.
+    Run qemu-img convert for disk imaging on Windows. Handles all command construction and execution.
     Returns (True, None) on success, (False, error) on failure.
     """
-    import os
-    device_path = disk_info['device_id']
-    # Pre-check: does the device exist? (Windows physical drives may not be openable, but check for user error)
-    if platform.system() == "Windows" and device_path.lower().startswith('\\.\\physicaldrive'):
-        try:
-            # Try opening for read to check existence/permissions
-            with open(device_path, 'rb'):
-                pass
-        except FileNotFoundError:
-            return False, f"Device {device_path} not found. Please check the drive number."
-        except PermissionError:
-            return False, f"Permission denied opening {device_path}. Try running as administrator."
-        except Exception as e:
-            # Could be in use or other error
-            return False, f"Could not open {device_path}: {e}"
-    qemu_img = find_qemu_img()
-    # Map 'img' and 'iso' to 'raw' for qemu-img
-    if image_format in ['img', 'iso']:
-        out_fmt = 'raw'
-    else:
-        out_fmt = image_format
-    try:
-        cmd = [qemu_img, 'convert', '-O', out_fmt, '-S', '4096']
-        if compress and out_fmt in ['qcow2', 'vmdk']:
-            cmd.append('-c')
-        cmd += [device_path, output_path]
-        logging.info(f'Running: {cmd}')
-        result = run_qemu_subprocess(cmd, capture_output=True, text=True, cleanup_tools=cleanup_tools)
-        if result.returncode != 0:
-            logging.error(f"qemu-img failed: returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
-            return False, f"qemu-img failed (code {result.returncode}):\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}\n\nIf this is a physical drive, ensure you are running as administrator and the device is not in use."
-        return True, None
-    except Exception as e:
-        logging.exception('Exception in create_disk_image_sparse')
-        return False, str(e)
+    logging.info(f'Creating disk image: device_path={device_path}, output_path={output_path}, image_format={image_format}, compress={compress}')
+    # Ensure qemu-img is present
+    init_qemu()
+    
+    qemu_img = os.path.join(os.path.dirname(__file__), '..', 'tools', 'qemu', 'qemu-img.exe')
+    out_fmt = 'raw' if image_format in ['img', 'iso'] else image_format
+    cmd = [qemu_img, 'convert', '-p', '-O', out_fmt, '-S', '4096']
 
-def list_qemu_dir_files():
-    """Return a list of files in tools/qemu/ for debugging missing DLLs."""
-    tools_dir = os.path.join(os.path.dirname(__file__), '..', 'tools', 'qemu')
-    if not os.path.exists(tools_dir):
-        return []
-    return os.listdir(tools_dir)
+    if compress and out_fmt in ['qcow2', 'vmdk']:
+        cmd.append('-c')
+    cmd += [device_path, output_path]
+    logging.info(f'Running: {cmd}')
+    result = run_qemu_wincmd(cmd, cwd=os.path.dirname(qemu_img), capture_output=True, text=True)
+    if result.returncode != 0:
+        logging.error(f"qemu-img failed: returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
+        return False, f"qemu-img failed (code {result.returncode}):\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    logging.info('Disk image creation (QEMU, Windows physical) finished successfully')
+    return True, None
+
+
