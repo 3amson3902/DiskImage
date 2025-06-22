@@ -5,7 +5,6 @@ Handles finding 7z.exe and running extraction commands for QEMU and other archiv
 """
 import os
 import subprocess
-import tempfile
 import shutil
 
 
@@ -120,7 +119,7 @@ def get_7zip_status_message():
     return "\n".join(msg)
 
 
-def extract_with_7zip(archive_path, dest_dir, ext_preference=None, cleanup_after=True, only_files=None):
+def extract_with_7zip(archive_path, dest_dir, cleanup_after=True, only_files=None):
     """
     Extract an archive using 7z.exe.
     If only_files is provided, only extract those filenames (list of basenames).
@@ -136,18 +135,11 @@ def extract_with_7zip(archive_path, dest_dir, ext_preference=None, cleanup_after
         return False, get_7zip_status_message()
     try:
         if only_files:
-            # Extract only the required files to a temp dir, then move to dest_dir
-            with tempfile.TemporaryDirectory() as temp_extract:
-                for fname in only_files:
-                    result = subprocess.run([exe, 'e', archive_path, fname, f'-o{temp_extract}', '-y'], capture_output=True, text=True)
-                    if result.returncode != 0:
-                        return False, f"Failed to extract {fname}: {result.stderr}\n" + get_7zip_status_message()
-                    # Move to dest_dir
-                    src = os.path.join(temp_extract, fname)
-                    dst = os.path.join(dest_dir, fname)
-                    if os.path.exists(src):
-                        os.makedirs(dest_dir, exist_ok=True)
-                        shutil.move(src, dst)
+            os.makedirs(dest_dir, exist_ok=True)
+            for fname in only_files:
+                result = subprocess.run([exe, 'e', archive_path, fname, f'-o{dest_dir}', '-y'], capture_output=True, text=True)
+                if result.returncode != 0:
+                    return False, f"Failed to extract {fname}: {result.stderr}\n" + get_7zip_status_message()
             warn = ""
             if not used_tools_dir:
                 warn = ("\nWARNING: Used system-installed 7z.exe. "

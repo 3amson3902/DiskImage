@@ -1,105 +1,224 @@
 """
-disk_list_utils.py - Cross-platform disk listing utilities for the disk imaging app.
+Cross-platform disk listing utilities for the disk imaging app.
 
-Provides functions to enumerate available disks on the system, with Windows-specific implementations using WMIC and PowerShell.
+Provides functions to enumerate available disks on the system, 
+with Windows-specific implementations using WMIC and PowerShell.
 """
 import platform
 import subprocess
 import logging
-import traceback
+import json
+from typing import List, Dict, Optional
+
+from .exceptions import DiskListError
+
+logger = logging.getLogger(__name__)
 
 
-def list_disks():
-    """Return a list of available disks on the system (platform-specific)."""
-    logging.debug('Listing disks')
+def list_disks() -> List[Dict[str, str]]:
+    """
+    Return a list of available disks on the system (platform-specific).
+    
+    Returns:
+        List of dictionaries containing disk information:
+        - name: Human-readable disk name
+        - device_id: System device identifier  
+        - model: Disk model name
+        - size: Formatted size string
+    
+    Raises:
+        DiskListError: If disk enumeration fails completely
+    """
+    logger.debug('Listing system disks')
     system = platform.system()
-    if system == "Windows":
-        disks = list_disks_windows()
-    else:
-        disks = []
-    logging.debug(f'Disks found: {disks}')
-    return disks
+    
+    try:
+        if system == "Windows":
+            disks = _list_disks_windows()
+        elif system in ["Linux", "Darwin"]:
+            # TODO: Implement Linux/macOS disk listing
+            disks = []
+            logger.warning(f"Disk listing not implemented for {system}")
+        else:
+            disks = []
+            logger.warning(f"Unsupported platform: {system}")
+        
+        logger.info(f'Found {len(disks)} disks')
+        return disks
+        
+    except Exception as e:
+        logger.exception("Failed to list disks")
+        raise DiskListError(f"Failed to enumerate system disks: {e}") from e
 
-def list_disks_windows():
-    """Use WMIC or PowerShell to enumerate physical disks on Windows."""
-    logging.debug('Attempting to list disks with WMIC')
+
+def _list_disks_windows() -> List[Dict[str, str]]:
+    """
+    Use WMIC or PowerShell to enumerate physical disks on Windows.
+    
+    Returns:
+        List of disk information dictionaries
+        
+    Raises:
+        DiskListError: If both WMIC and PowerShell fail
+    """
+    logger.debug('Attempting to list Windows disks with WMIC')
+    
     try:
         return _list_disks_wmic()
-    except FileNotFoundError as e:
-        logging.warning(f"WMIC not found, falling back to PowerShell: {e}")
+    except FileNotFoundError:
+        logger.warning("WMIC not found, falling back to PowerShell")
         return _list_disks_powershell()
     except Exception as e:
-        logging.error(f"Unexpected error in WMIC disk listing: {e}")
+        logger.warning(f"WMIC failed: {e}, falling back to PowerShell")
         return _list_disks_powershell()
 
-def _list_disks_wmic():
-    """Helper: Use WMIC to enumerate disks on Windows."""
-    result = subprocess.run(
-        ["wmic", "diskdrive", "get", "DeviceID,Model,Size,Caption", "/format:csv"],
-        capture_output=True,
-        text=True,
-        encoding='utf-8-sig'
-    )
-    logging.debug(f'WMIC stdout: {result.stdout}')
-    logging.debug(f'WMIC stderr: {result.stderr}')
-    lines = result.stdout.strip().split('\n')
-    if len(lines) < 2:
-        logging.warning('WMIC returned less than 2 lines')
-        return []
-    headers = [h.strip() for h in lines[0].split(',')]
-    try:
-        caption_idx = headers.index("Caption")
-        device_id_idx = headers.index("DeviceID")
-        model_idx = headers.index("Model")
-        size_idx = headers.index("Size")
-    except ValueError:
-        logging.warning(f'WMIC header parse failed: {headers}')
-        return []
-    disks = []
-    for line in lines[1:]:
-        if not line:
-            continue
-        parts = [p.strip() for p in line.split(',')]
-        try:
-            size_bytes = int(parts[size_idx])
-            size_gb = round(size_bytes / (1024**3), 2)
-        except Exception:
-            size_gb = 'Unknown'
-        disks.append({
-            "name": parts[caption_idx],
-            "device_id": parts[device_id_idx],
-            "model": parts[model_idx],
-            "size": f"{size_gb} GB"
-        })
-    logging.debug(f'Disks found by WMIC: {disks}')
-    return disks
 
-def _list_disks_powershell():
-    """Helper: Use PowerShell to enumerate disks on Windows."""
+def _list_disks_wmic() -> List[Dict[str, str]]:
+    """
+    Helper: Use WMIC to enumerate disks on Windows.
+    
+    Returns:
+        List of disk information dictionaries
+        
+    Raises:
+        DiskListError: If WMIC fails or returns invalid data
+        FileNotFoundError: If WMIC is not available
+    """
+    try:
+        result = subprocess.run(
+            ["wmic", "diskdrive", "get", "DeviceID,Model,Size,Caption", "/format:csv"],
+            capture_output=True,
+            text=True,
+            encoding='utf-8-sig',
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            raise DiskListError(f"WMIC failed with return code {result.returncode}: {result.stderr}")
+        
+        logger.debug(f'WMIC stdout: {result.stdout[:500]}...')  # Truncated for logging
+        
+        lines = result.stdout.strip().split('\n')
+        if len(lines) < 2:
+            logger.warning('WMIC returned insufficient data')
+            return []
+        
+        # Parse CSV header
+        headers = [h.strip() for h in lines[0].split(',')]
+        required_headers = ["Caption", "DeviceID", "Model", "Size"]
+        
+        try:
+            indices = {header: headers.index(header) for header in required_headers}
+        except ValueError as e:
+            raise DiskListError(f"WMIC output missing required column: {e}")
+        
+        disks = []
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+                
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) < len(headers):
+                continue
+                
+            try:
+                size_bytes = int(parts[indices["Size"]])
+                size_gb = round(size_bytes / (1024**3), 2)
+                size_str = f"{size_gb} GB"
+            except (ValueError, IndexError):
+                size_str = 'Unknown'
+            
+            disk_info = {
+                "name": parts[indices["Caption"]],
+                "device_id": parts[indices["DeviceID"]],
+                "model": parts[indices["Model"]],
+                "size": size_str
+            }
+            disks.append(disk_info)
+        
+        logger.debug(f'WMIC found {len(disks)} disks')
+        return disks
+        
+    except subprocess.TimeoutExpired:
+        raise DiskListError("WMIC command timed out")
+    except FileNotFoundError:
+        raise FileNotFoundError("WMIC command not found")
+    except Exception as e:
+        raise DiskListError(f"WMIC execution failed: {e}") from e
+
+
+def _list_disks_powershell() -> List[Dict[str, str]]:
+    """
+    Helper: Use PowerShell to enumerate disks on Windows.
+    
+    Returns:
+        List of disk information dictionaries
+        
+    Raises:
+        DiskListError: If PowerShell fails or returns invalid data
+    """
     try:
         ps_cmd = [
             "powershell", "-Command",
             "Get-PhysicalDisk | Select-Object FriendlyName,DeviceId,Size,MediaType | ConvertTo-Json"
         ]
-        result = subprocess.run(ps_cmd, capture_output=True, text=True, check=True)
-        logging.debug(f'PowerShell stdout: {result.stdout}')
-        logging.debug(f'PowerShell stderr: {result.stderr}')
-        import json
-        disks_info = json.loads(result.stdout)
+        
+        result = subprocess.run(
+            ps_cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            raise DiskListError(f"PowerShell failed with return code {result.returncode}: {result.stderr}")
+        
+        logger.debug(f'PowerShell stdout: {result.stdout[:500]}...')  # Truncated for logging
+        
+        try:
+            disks_info = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            raise DiskListError(f"PowerShell returned invalid JSON: {e}")
+        
+        # Handle single disk (not in array)
         if isinstance(disks_info, dict):
             disks_info = [disks_info]
+        
         disks = []
         for d in disks_info:
-            size_gb = round(int(d.get('Size', 0)) / (1024**3), 2) if d.get('Size') else 'Unknown'
-            disks.append({
-                "name": d.get('FriendlyName', f"PhysicalDrive{d.get('DeviceId','?')}") or f"PhysicalDrive{d.get('DeviceId','?')}",
-                "device_id": f"\\\\.\\PhysicalDrive{d.get('DeviceId','?')}",
-                "model": d.get('MediaType', 'Unknown'),
-                "size": f"{size_gb} GB"
-            })
-            logging.debug(f"PowerShell disk device_id: \\.\\PhysicalDrive{d.get('DeviceId','?')}")
-        logging.debug(f'Disks found by PowerShell: {disks}')
+            try:
+                device_id = d.get('DeviceId')
+                if device_id is None:
+                    continue
+                    
+                size_bytes = d.get('Size', 0)
+                if size_bytes and isinstance(size_bytes, (int, float)):
+                    size_gb = round(size_bytes / (1024**3), 2)
+                    size_str = f"{size_gb} GB"
+                else:
+                    size_str = 'Unknown'
+                
+                friendly_name = d.get('FriendlyName', f"PhysicalDrive{device_id}")
+                name = friendly_name if friendly_name else f"PhysicalDrive{device_id}"
+                
+                disk_info = {
+                    "name": name,
+                    "device_id": f"\\\\.\\PhysicalDrive{device_id}",
+                    "model": d.get('MediaType', 'Unknown'),
+                    "size": size_str
+                }
+                disks.append(disk_info)
+                
+            except Exception as e:
+                logger.warning(f"Failed to parse disk info: {d}, error: {e}")
+                continue
+        
+        logger.debug(f'PowerShell found {len(disks)} disks')
         return disks
-    except Exception as e2:
-        logging.error(f'PowerShell disk listing failed: {e2}\n{traceback.format_exc()}')
-        return []
+        
+    except subprocess.TimeoutExpired:
+        raise DiskListError("PowerShell command timed out")
+    except FileNotFoundError:
+        raise DiskListError("PowerShell not found")
+    except Exception as e:
+        raise DiskListError(f"PowerShell execution failed: {e}") from e
