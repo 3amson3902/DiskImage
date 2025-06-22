@@ -1,0 +1,34 @@
+DiskImager Setup Instructions
+============================
+
+1. Python Environment
+---------------------
+- Install Python 3.8+ (recommended: use a virtual environment)
+- Create a virtual environment:
+    python -m venv .venv
+- Activate the virtual environment:
+    - Windows: .venv\Scripts\activate
+    - Linux/macOS: source .venv/bin/activate
+- Install required Python packages:
+    pip install -r requirements.txt
+
+2. 3rd Party Tools
+------------------
+- Download qemu-img.exe (for Windows) from https://qemu.weilnetz.de/w64/ or the official QEMU site.
+- Place qemu-img.exe in the tools/ directory at the project root (create the folder if it does not exist).
+- (Optional) Download 7-Zip (for .7z archiving) and ensure 7z.exe is in your system PATH or tools/.
+
+3. Running the Program
+----------------------
+- Activate your virtual environment (see above).
+- Run the program:
+    python main.py
+- The GUI will launch. You can image disks, convert formats, and archive images.
+
+4. Notes
+--------
+- All disk images and archives are ignored by git (see .gitignore).
+- The tools/ directory is for 3rd party binaries and is also ignored by git.
+- Run as administrator for full disk access on Windows.
+
+For more help, see README.txt in the tools/ directory or contact the project maintainer.

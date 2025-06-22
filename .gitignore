@@ -1,0 +1,39 @@
+# Ignore Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+.venv/
+venv/
+ENV/
+
+# Ignore 3rd party tools and binaries
+/tools/
+
+# Ignore disk images and archives
+*.img
+*.vhd
+*.vmdk
+*.qcow2
+*.iso
+*.zip
+*.7z
+*.gz
+
+# Ignore logs
+*.log
+
+# Ignore pip and build artifacts
+*.egg-info/
+dist/
+build/
+
+# Ignore user/editor files
+*.swp
+*.swo
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
