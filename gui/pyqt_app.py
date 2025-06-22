@@ -12,11 +12,14 @@ import datetime
 from backend.disk_ops import create_disk_image
 from backend.qemu_utils import create_disk_image_sparse
 from backend.archive_utils import archive_image
-from main import is_admin, list_disks, load_config, save_config, update_config
+from backend.admin_utils import is_admin
+from backend.disk_list_utils import list_disks
+from backend.config_utils import load_config, save_config, update_config
 
 class ImagingThread(QThread):
     progress = pyqtSignal(float)
     finished = pyqtSignal(bool, str)
+    log = pyqtSignal(str)  # New signal for log/output
 
     def __init__(self, disk, out_path, image_format, use_sparse, use_compress, archive_after, archive_type, buffer_size, cleanup_tools):
         super().__init__()
@@ -37,21 +40,29 @@ class ImagingThread(QThread):
                 percent = (bytes_read / total_size) * 100
                 self.progress.emit(percent)
         try:
-            if self.use_sparse and self.image_format in ("qcow2", "vhd", "vmdk"):
-                success, error = create_disk_image_sparse(self.disk, self.out_path, self.image_format, self.use_compress, cleanup_tools=self.cleanup_tools)
-            else:
-                success, error = create_disk_image(self.disk, self.out_path, progress_callback, self.image_format, self.use_compress, self.buffer_size, cleanup_tools=self.cleanup_tools)
-            if success and self.archive_after and self.archive_type:
-                arch_success, arch_error = archive_image(self.out_path, self.archive_type, cleanup_tools=self.cleanup_tools)
-                if arch_success:
-                    self.finished.emit(True, f"Imaging and archiving complete: {arch_success}")
+            import io
+            import contextlib
+            log_buffer = io.StringIO()
+            with contextlib.redirect_stdout(log_buffer), contextlib.redirect_stderr(log_buffer):
+                if self.use_sparse and self.image_format in ("qcow2", "vhd", "vmdk"):
+                    success, error = create_disk_image_sparse(self.disk, self.out_path, self.image_format, self.use_compress, cleanup_tools=self.cleanup_tools)
                 else:
-                    self.finished.emit(False, f"Imaging complete, but archive failed: {arch_error}")
-            elif success:
-                self.finished.emit(True, "Imaging complete.")
-            else:
-                self.finished.emit(False, f"Error: {error}")
+                    success, error = create_disk_image(self.disk, self.out_path, progress_callback, self.image_format, self.use_compress, self.buffer_size, cleanup_tools=self.cleanup_tools)
+                if success and self.archive_after and self.archive_type:
+                    arch_success, arch_error = archive_image(self.out_path, self.archive_type, cleanup_tools=self.cleanup_tools)
+                    if arch_success:
+                        self.finished.emit(True, f"Imaging and archiving complete: {arch_success}")
+                    else:
+                        self.finished.emit(False, f"Imaging complete, but archive failed: {arch_error}")
+                elif success:
+                    self.finished.emit(True, "Imaging complete.")
+                else:
+                    self.finished.emit(False, f"Error: {error}")
+            # Emit all captured output to the log signal
+            self.log.emit(log_buffer.getvalue())
         except Exception as e:
+            import traceback
+            self.log.emit(traceback.format_exc())
             self.finished.emit(False, f"Exception: {e}")
 
     def get_disk_size(self, disk):
@@ -132,7 +143,7 @@ class DiskImagerWindow(QMainWindow):
         # Status (replace QLabel with QTextEdit for copyable text)
         self.status_label = QTextEdit("Ready.")
         self.status_label.setReadOnly(True)
-        self.status_label.setMaximumHeight(60)
+        self.status_label.setMaximumHeight(120)
         layout.addWidget(self.status_label)
         # Start
         self.start_btn = QPushButton("Start Imaging")
@@ -212,11 +223,19 @@ class DiskImagerWindow(QMainWindow):
         self.thread = ImagingThread(self.selected_disk, out_path, image_format, use_sparse, use_compress, archive_after, archive_type, buffer_size, cleanup_tools)
         self.thread.progress.connect(self.progress.setValue)
         self.thread.finished.connect(self.on_imaging_finished)
+        self.thread.log.connect(self.append_log)  # Connect log signal
         self.thread.start()
+
+    def append_log(self, text):
+        if text:
+            self.status_label.append(text)
 
     def on_imaging_finished(self, success, message):
         self.status_label.setPlainText(message)
         self.start_btn.setEnabled(True)
+        # If error is about missing physical drive, show a user-friendly hint
+        if not success and 'Could not open' in message and 'PhysicalDrive' in message:
+            self.status_label.append("\nHint: The selected physical drive may not exist, is in use, or requires administrator privileges. Make sure the drive is present and not locked by another process.")
 
 
 def run_pyqt_gui():

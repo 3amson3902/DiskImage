@@ -5,6 +5,8 @@ Handles finding 7z.exe and running extraction commands for QEMU and other archiv
 """
 import os
 import subprocess
+import tempfile
+import shutil
 
 
 def find_7z_exe():
@@ -52,7 +54,6 @@ def extract_7z_from_installer(installer_path, dest_dir):
     Attempt to extract 7z.exe and 7z.dll from the 7-Zip installer using system 7z.exe or by running the installer in silent mode.
     Returns (True, None) on success, (False, error) on failure.
     """
-    import shutil
     import time
     # Try system 7z.exe first
     for path in os.environ.get('PATH', '').split(os.pathsep):
@@ -119,9 +120,10 @@ def get_7zip_status_message():
     return "\n".join(msg)
 
 
-def extract_with_7zip(archive_path, dest_dir, ext_preference=None, cleanup_after=True):
+def extract_with_7zip(archive_path, dest_dir, ext_preference=None, cleanup_after=True, only_files=None):
     """
     Extract an archive using 7z.exe.
+    If only_files is provided, only extract those filenames (list of basenames).
     Returns (True, None) on success, (False, error) on failure.
     Warn if using system 7z.exe instead of ./tools/7zip.
     If cleanup_after is True, deletes 7z.exe/7z.dll in tools/7zip/ after extraction.
@@ -133,8 +135,19 @@ def extract_with_7zip(archive_path, dest_dir, ext_preference=None, cleanup_after
     if not exe:
         return False, get_7zip_status_message()
     try:
-        result = subprocess.run([exe, 'x', archive_path, f'-o{dest_dir}', '-y'], capture_output=True, text=True)
-        if result.returncode == 0:
+        if only_files:
+            # Extract only the required files to a temp dir, then move to dest_dir
+            with tempfile.TemporaryDirectory() as temp_extract:
+                for fname in only_files:
+                    result = subprocess.run([exe, 'e', archive_path, fname, f'-o{temp_extract}', '-y'], capture_output=True, text=True)
+                    if result.returncode != 0:
+                        return False, f"Failed to extract {fname}: {result.stderr}\n" + get_7zip_status_message()
+                    # Move to dest_dir
+                    src = os.path.join(temp_extract, fname)
+                    dst = os.path.join(dest_dir, fname)
+                    if os.path.exists(src):
+                        os.makedirs(dest_dir, exist_ok=True)
+                        shutil.move(src, dst)
             warn = ""
             if not used_tools_dir:
                 warn = ("\nWARNING: Used system-installed 7z.exe. "
@@ -151,6 +164,24 @@ def extract_with_7zip(archive_path, dest_dir, ext_preference=None, cleanup_after
                         pass
             return True, warn if warn else None
         else:
-            return False, result.stderr + "\n" + get_7zip_status_message()
+            result = subprocess.run([exe, 'x', archive_path, f'-o{dest_dir}', '-y'], capture_output=True, text=True)
+            if result.returncode == 0:
+                warn = ""
+                if not used_tools_dir:
+                    warn = ("\nWARNING: Used system-installed 7z.exe. "
+                            "For best portability, place 7z.exe (and 7z.dll) from the '7-Zip Extra' package in the ./tools/7zip directory.")
+                # Clean up extracted 7z.exe/7z.dll if requested
+                if cleanup_after:
+                    sevenzip_dir = os.path.join(os.path.dirname(__file__), '..', 'tools', '7zip')
+                    for fname in ['7z.exe', '7z.dll']:
+                        fpath = os.path.join(sevenzip_dir, fname)
+                        try:
+                            if os.path.isfile(fpath):
+                                os.remove(fpath)
+                        except Exception:
+                            pass
+                return True, warn if warn else None
+            else:
+                return False, result.stderr + "\n" + get_7zip_status_message()
     except Exception as e:
         return False, str(e) + "\n" + get_7zip_status_message()

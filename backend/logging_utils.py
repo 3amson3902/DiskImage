@@ -19,3 +19,11 @@ def setup_logging(logfile='diskimage.log', level=logging.INFO):
             logging.StreamHandler()
         ]
     )
+
+def setup_logging():
+    import logging
+    logging.basicConfig(
+        filename='diskimager_main.log',
+        level=logging.DEBUG,
+        format='%(asctime)s %(levelname)s %(message)s'
+    )
