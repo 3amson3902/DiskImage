@@ -5,7 +5,6 @@ main.py - Entry point for DiskImage application
 Provides both CLI and GUI interfaces based on command line arguments.
 """
 import sys
-import argparse
 from pathlib import Path
 
 # Add the project root to the Python path

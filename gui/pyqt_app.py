@@ -208,8 +208,7 @@ class DiskImagerWindow(QMainWindow):
             self.config.save()
             logger.info("Configuration saved on exit")
         except Exception as e:
-            logger.error(f"Failed to save configuration: {e}")
-        
+            logger.error(f"Failed to save configuration: {e}")        
         event.accept()
 
     def refresh_disks(self):
@@ -224,7 +223,9 @@ class DiskImagerWindow(QMainWindow):
                 self.start_btn.setEnabled(False)
             else:
                 for disk in disks:
-                    display_name = f"{disk['name']} ({disk['device_id']}) - {disk['size']} - {disk['model']}"
+                    # Include interface type in display name
+                    interface = disk.get('interface', 'Unknown')
+                    display_name = f"{disk['name']} ({disk['device_id']}) - {disk['size']} - {disk['model']} [{interface}]"
                     self.disk_combo.addItem(display_name)
                 self.selected_disk = disks[0]
                 self.start_btn.setEnabled(True)

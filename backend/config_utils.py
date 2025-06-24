@@ -3,7 +3,7 @@ Configuration management for DiskImage application.
 """
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 import json
 import logging
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AppConfig:
     """Application configuration data class."""
-    cleanup_tools: bool = True
+    cleanup_tools: bool = False
     last_output_dir: str = ""
     theme: str = "auto"
     window_size: Tuple[int, int] = (1024, 768)
@@ -52,12 +52,37 @@ class AppConfig:
             # Merge with defaults for missing keys
             merged_data = DEFAULT_CONFIG.copy()
             merged_data.update(data)
+              # Handle window_size conversion
+            window_size: Tuple[int, int] = (1024, 768)
+            if 'window_size' in merged_data:
+                ws = merged_data['window_size']
+                if isinstance(ws, (list, tuple)):
+                    try:
+                        if len(ws) >= 2:
+                            # Safe casting with explicit type checks
+                            w, h = ws[0], ws[1]
+                            if isinstance(w, (int, float, str)) and isinstance(h, (int, float, str)):
+                                window_size = (int(w), int(h))
+                    except (ValueError, TypeError, IndexError):
+                        window_size = (1024, 768)
             
-            # Convert window_size list to tuple
-            if isinstance(merged_data.get('window_size'), list):
-                merged_data['window_size'] = tuple(merged_data['window_size'])
-            
-            return cls(**merged_data)
+            # Safely extract and convert values with proper defaults
+            buffer_size = 64
+            try:
+                buffer_size_val = merged_data.get('buffer_size_mb')
+                if buffer_size_val is not None:
+                    if isinstance(buffer_size_val, (int, float, str)):
+                        buffer_size = int(buffer_size_val)
+            except (ValueError, TypeError):
+                buffer_size = 64
+                
+            return cls(
+                cleanup_tools=bool(merged_data.get('cleanup_tools', True)),
+                last_output_dir=str(merged_data.get('last_output_dir', "")),
+                theme=str(merged_data.get('theme', "auto")),
+                window_size=window_size,
+                buffer_size_mb=buffer_size
+            )
             
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             logger.warning(f"Invalid config file, using defaults: {e}")
@@ -94,7 +119,7 @@ class AppConfig:
         except Exception as e:
             raise ConfigError(f"Failed to save configuration: {e}") from e
 
-    def update(self, **kwargs) -> None:
+    def update(self, **kwargs: Any) -> None:
         """
         Update configuration values.
         
@@ -110,7 +135,7 @@ class AppConfig:
 
 
 # Legacy functions for backward compatibility
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Legacy function - returns config as dict."""
     config = AppConfig.load()
     data = asdict(config)
@@ -119,7 +144,7 @@ def load_config() -> dict:
     return data
 
 
-def save_config(config_dict: dict) -> None:
+def save_config(config_dict: dict[str, Any]) -> None:
     """Legacy function - saves dict as config."""
     try:
         # Convert dict to AppConfig
@@ -132,7 +157,7 @@ def save_config(config_dict: dict) -> None:
         logger.error(f"Failed to save config via legacy function: {e}")
 
 
-def update_config(updates: dict) -> None:
+def update_config(updates: dict[str, Any]) -> None:
     """Legacy function - updates config from dict."""
     config = AppConfig.load()
     config.update(**updates)

@@ -3,7 +3,7 @@ Cleanup utilities for DiskImage application.
 """
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Any
 
 from .constants import QEMU_DIR, SEVENZIP_DIR
 
@@ -95,7 +95,7 @@ def _cleanup_directory(directory: Path, tool_name: str) -> bool:
     return success
 
 
-def get_cleanup_info() -> dict:
+def get_cleanup_info() -> dict[str, Any]:
     """
     Get information about files that would be cleaned up.
     
@@ -107,8 +107,8 @@ def get_cleanup_info() -> dict:
         "sevenzip": _get_directory_info(SEVENZIP_DIR)
     }
     
-    total_files = info["qemu"]["file_count"] + info["sevenzip"]["file_count"]
-    total_size = info["qemu"]["total_size"] + info["sevenzip"]["total_size"]
+    total_files: int = info["qemu"]["file_count"] + info["sevenzip"]["file_count"]
+    total_size: int = info["qemu"]["total_size"] + info["sevenzip"]["total_size"]
     
     info["total"] = {
         "file_count": total_files,
@@ -119,7 +119,7 @@ def get_cleanup_info() -> dict:
     return info
 
 
-def _get_directory_info(directory: Path) -> dict:
+def _get_directory_info(directory: Path) -> dict[str, Any]:
     """
     Get information about files in a directory.
     
@@ -129,12 +129,11 @@ def _get_directory_info(directory: Path) -> dict:
     Returns:
         Dictionary with directory information
     """
-    info = {
+    info: dict[str, Any] = {
         "exists": directory.exists(),
         "file_count": 0,
         "total_size": 0,
-        "files": []
-    }
+        "files": []    }
     
     if not directory.exists() or not directory.is_dir():
         return info
@@ -172,8 +171,9 @@ def _format_bytes(size: int) -> str:
     Returns:
         Formatted size string
     """
+    size_float = float(size)
     for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
+        if size_float < 1024:
+            return f"{size_float:.1f} {unit}"
+        size_float /= 1024
+    return f"{size_float:.1f} TB"

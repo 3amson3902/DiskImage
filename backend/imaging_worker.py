@@ -164,7 +164,8 @@ class ImagingWorker:
                 output_path,
                 image_format,
                 compress=compress,
-                sparse=True
+                sparse=True,
+                progress_callback=progress_callback
             )
             
         except Exception as e:
@@ -192,8 +193,7 @@ class ImagingWorker:
             
         Returns:
             Tuple of (success, error_message)
-        """
-        # For now, delegate to QEMU as it's more reliable for physical disks
+        """        # For now, delegate to QEMU as it's more reliable for physical disks
         # TODO: Implement direct imaging for special cases
         return self._run_qemu_imaging(disk_info, output_path, image_format, compress, progress_callback)
 

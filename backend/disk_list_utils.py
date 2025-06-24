@@ -86,7 +86,7 @@ def _list_disks_wmic() -> List[Dict[str, str]]:
     """
     try:
         result = subprocess.run(
-            ["wmic", "diskdrive", "get", "DeviceID,Model,Size,Caption", "/format:csv"],
+            ["wmic", "diskdrive", "get", "DeviceID,Model,Size,Caption,InterfaceType", "/format:csv"],
             capture_output=True,
             text=True,
             encoding='utf-8-sig',
@@ -106,9 +106,14 @@ def _list_disks_wmic() -> List[Dict[str, str]]:
         # Parse CSV header
         headers = [h.strip() for h in lines[0].split(',')]
         required_headers = ["Caption", "DeviceID", "Model", "Size"]
+        optional_headers = ["InterfaceType"]
         
         try:
             indices = {header: headers.index(header) for header in required_headers}
+            # Add optional headers if available
+            for header in optional_headers:
+                if header in headers:
+                    indices[header] = headers.index(header)
         except ValueError as e:
             raise DiskListError(f"WMIC output missing required column: {e}")
         
@@ -118,7 +123,7 @@ def _list_disks_wmic() -> List[Dict[str, str]]:
                 continue
                 
             parts = [p.strip() for p in line.split(',')]
-            if len(parts) < len(headers):
+            if len(parts) < len(required_headers):
                 continue
                 
             try:
@@ -128,11 +133,17 @@ def _list_disks_wmic() -> List[Dict[str, str]]:
             except (ValueError, IndexError):
                 size_str = 'Unknown'
             
+            # Get interface type if available
+            interface = 'Unknown'
+            if "InterfaceType" in indices and len(parts) > indices["InterfaceType"]:
+                interface = parts[indices["InterfaceType"]] or 'Unknown'
+            
             disk_info = {
                 "name": parts[indices["Caption"]],
                 "device_id": parts[indices["DeviceID"]],
                 "model": parts[indices["Model"]],
-                "size": size_str
+                "size": size_str,
+                "interface": interface
             }
             disks.append(disk_info)
         
@@ -160,7 +171,7 @@ def _list_disks_powershell() -> List[Dict[str, str]]:
     try:
         ps_cmd = [
             "powershell", "-Command",
-            "Get-PhysicalDisk | Select-Object FriendlyName,DeviceId,Size,MediaType | ConvertTo-Json"
+            "Get-PhysicalDisk | Select-Object FriendlyName,DeviceId,Size,MediaType,BusType | ConvertTo-Json"
         ]
         
         result = subprocess.run(
@@ -201,11 +212,36 @@ def _list_disks_powershell() -> List[Dict[str, str]]:
                 friendly_name = d.get('FriendlyName', f"PhysicalDrive{device_id}")
                 name = friendly_name if friendly_name else f"PhysicalDrive{device_id}"
                 
+                # Get interface type
+                bus_type = d.get('BusType', 'Unknown')
+                interface_map = {
+                    '0': 'Unknown',
+                    '1': 'SCSI',
+                    '2': 'ATAPI',
+                    '3': 'ATA',
+                    '4': 'IEEE 1394',
+                    '5': 'SSA',
+                    '6': 'FC',
+                    '7': 'USB',
+                    '8': 'RAID',
+                    '9': 'iSCSI',
+                    '10': 'SAS',
+                    '11': 'SATA',
+                    '12': 'SD',
+                    '13': 'MMC',
+                    '14': 'Virtual',
+                    '15': 'File Backed Virtual',
+                    '16': 'Storage Spaces',
+                    '17': 'NVMe'
+                }
+                interface = interface_map.get(str(bus_type), f"Unknown ({bus_type})")
+                
                 disk_info = {
                     "name": name,
                     "device_id": f"\\\\.\\PhysicalDrive{device_id}",
                     "model": d.get('MediaType', 'Unknown'),
-                    "size": size_str
+                    "size": size_str,
+                    "interface": interface
                 }
                 disks.append(disk_info)
                 

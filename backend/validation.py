@@ -2,14 +2,14 @@
 Input validation utilities for DiskImage application.
 """
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Mapping
 import re
 
 from .exceptions import ValidationError
 from .constants import SUPPORTED_IMAGE_FORMATS, SUPPORTED_ARCHIVE_FORMATS
 
 
-def validate_disk_info(disk_info: Any) -> Dict[str, str]:
+def validate_disk_info(disk_info: Mapping[str, str]) -> Dict[str, str]:
     """
     Validate disk information dictionary.
     
@@ -29,15 +29,13 @@ def validate_disk_info(disk_info: Any) -> Dict[str, str]:
     for key in required_keys:
         if key not in disk_info:
             raise ValidationError(f"Disk info missing required key: {key}")
-        if not isinstance(disk_info[key], str):
-            raise ValidationError(f"Disk info key '{key}' must be a string")
     
     # Validate device_id format
-    device_id = disk_info['device_id']
+    device_id: str = disk_info['device_id']
     if not device_id:
         raise ValidationError("Device ID cannot be empty")
     
-    return disk_info
+    return dict(disk_info)
 
 
 def validate_output_path(output_path: str) -> Path:
@@ -53,7 +51,7 @@ def validate_output_path(output_path: str) -> Path:
     Raises:
         ValidationError: If path is invalid
     """
-    if not output_path or not isinstance(output_path, str):
+    if not output_path:
         raise ValidationError("Output path must be a non-empty string")
     
     path = Path(output_path).resolve()
@@ -89,9 +87,6 @@ def validate_image_format(image_format: str) -> str:
     Raises:
         ValidationError: If format is unsupported
     """
-    if not isinstance(image_format, str):
-        raise ValidationError("Image format must be a string")
-    
     # Check if it's a key or value in SUPPORTED_IMAGE_FORMATS
     if image_format in SUPPORTED_IMAGE_FORMATS:
         return SUPPORTED_IMAGE_FORMATS[image_format]
@@ -118,9 +113,6 @@ def validate_archive_format(archive_format: Optional[str]) -> Optional[str]:
     """
     if archive_format is None:
         return None
-    
-    if not isinstance(archive_format, str):
-        raise ValidationError("Archive format must be a string")
     
     if archive_format not in SUPPORTED_ARCHIVE_FORMATS:
         raise ValidationError(f"Unsupported archive format: {archive_format}. "
@@ -172,9 +164,6 @@ def sanitize_path_for_subprocess(path: str) -> str:
     Raises:
         ValidationError: If path contains dangerous characters
     """
-    if not isinstance(path, str):
-        raise ValidationError("Path must be a string")
-    
     # Check for potential injection attempts
     dangerous_chars = ['&', '|', ';', '$', '`', '(', ')', '{', '}']
     for char in dangerous_chars:

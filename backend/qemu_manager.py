@@ -4,8 +4,11 @@ QEMU management and operations for disk imaging.
 import platform
 import subprocess
 import logging
+import threading
+import time
+import os
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Callable
 
 from .constants import (
     REQUIRED_QEMU_FILES, QEMU_DIR, TOOLS_DIR, WINDOWS_DLL_NOT_FOUND,
@@ -121,8 +124,7 @@ class QemuManager:
                 # Retry once
                 result = subprocess.run(full_command, **kwargs)
             
-            return result
-            
+            return result            
         except subprocess.TimeoutExpired as e:
             raise QemuError(f"QEMU command timed out after {timeout} seconds") from e
         except Exception as e:
@@ -134,7 +136,8 @@ class QemuManager:
         output_path: str,
         image_format: str = "raw",
         compress: bool = False,
-        sparse: bool = True
+        sparse: bool = True,
+        progress_callback: Optional[Callable[[int], None]] = None
     ) -> Tuple[bool, Optional[str]]:
         """
         Create a disk image using qemu-img.
@@ -153,28 +156,54 @@ class QemuManager:
             # Validate inputs
             validated_output = validate_output_path(output_path)
             sanitized_source = sanitize_path_for_subprocess(source_path)
-            
-            # Build command
+              # Build command with performance optimizations
             command = ['convert', '-p']
+            
+            # Performance optimizations
+            command.extend(['-m', '16'])  # Use 16 parallel coroutines for better I/O
+            command.extend(['-W'])        # Allow unsafe cache operations for speed
+            
+            # Buffer size optimization - use larger buffers for better throughput
+            if self.is_windows:
+                # Windows-specific optimizations for physical disks
+                command.extend(['-T', 'none'])  # Disable source cache for direct I/O
+                command.extend(['-f', 'raw'])   # Explicitly set source format
             
             if sparse:
                 command.extend(['-S', '4096'])
             
             command.extend(['-O', image_format])
             
+            # Target cache optimizations
+            if image_format == 'raw':
+                command.extend(['-t', 'none'])  # Disable target cache for raw images
+            else:
+                command.extend(['-t', 'writeback'])  # Use writeback cache for other formats
+            
             if compress and image_format in ['qcow2', 'vmdk']:
                 command.append('-c')
             
             command.extend([sanitized_source, str(validated_output)])
             
-            # Run command
-            result = self.run_command(command)
-            
-            if result.returncode == 0:
-                logger.info("QEMU image creation completed successfully")
-                return True, None
+            # If progress callback is provided, use enhanced monitoring
+            if progress_callback:
+                return self._run_command_with_progress(command, validated_output, progress_callback)
             else:
-                error_msg = f"qemu-img failed (code {result.returncode}):\\n"
+                # Run command normally
+                result = self.run_command(command)
+                
+                if result.returncode == 0:
+                    logger.info("QEMU image creation completed successfully")
+                    return True, None
+                else:
+                    error_msg = f"qemu-img failed (code {result.returncode}):\\n"
+                    if result.stdout:
+                        error_msg += f"STDOUT:\\n{result.stdout}\\n"
+                    if result.stderr:
+                        error_msg += f"STDERR:\\n{result.stderr}"
+                    
+                    logger.error(error_msg)
+                    return False, error_msg
                 if result.stdout:
                     error_msg += f"STDOUT:\\n{result.stdout}\\n"
                 if result.stderr:
@@ -340,3 +369,114 @@ class QemuManager:
                 f"QEMU failed with DLL error and recovery failed: {e}. "
                 "Try providing a different QEMU build or check your antivirus software."
             ) from e
+    
+    def _run_command_with_progress(
+        self, 
+        command: List[str], 
+        output_path: Path, 
+        progress_callback: Callable[[int], None]
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Run QEMU command with progress monitoring by tracking output file size.
+        
+        Args:
+            command: QEMU command arguments
+            output_path: Path to output file being created
+            progress_callback: Function to call with progress updates (bytes written)
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # Get source size to calculate progress percentage
+            source_path = command[-2]  # Second to last argument is source
+            source_size = 0
+            
+            try:
+                if source_path.startswith('\\\\.\\PhysicalDrive'):
+                    # For Windows physical drives, try to get size via WMI
+                    import re
+                    drive_match = re.search(r'PhysicalDrive(\d+)', source_path)
+                    if drive_match:
+                        drive_num = drive_match.group(1)
+                        # Use PowerShell to get drive size
+                        ps_cmd = [
+                            "powershell", "-Command",
+                            f"(Get-PhysicalDisk | Where-Object {{$_.DeviceId -eq {drive_num}}}).Size"
+                        ]
+                        result = subprocess.run(ps_cmd, capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0 and result.stdout.strip():
+                            source_size = int(result.stdout.strip())
+                else:
+                    # Regular file
+                    source_size = os.path.getsize(source_path)
+            except Exception as e:
+                logger.warning(f"Could not determine source size: {e}")
+                source_size = 0
+            
+            # Prepare command
+            qemu_path = self.get_executable_path()
+            full_command = [str(qemu_path)] + command
+            
+            # Start the QEMU process
+            process = subprocess.Popen(
+                full_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Monitor progress in a separate thread
+            progress_stop = threading.Event()
+            
+            def monitor_progress():
+                last_size = 0
+                while not progress_stop.is_set() and process.poll() is None:
+                    try:
+                        if output_path.exists():
+                            current_size = output_path.stat().st_size
+                            if current_size > last_size:
+                                progress_callback(current_size)
+                                last_size = current_size
+                    except Exception:
+                        pass
+                    time.sleep(0.5)  # Check every 500ms
+            
+            progress_thread = threading.Thread(target=monitor_progress)
+            progress_thread.start()
+            
+            try:
+                # Wait for process completion
+                stdout, stderr = process.communicate(timeout=3600)  # 1 hour timeout
+                
+                # Stop progress monitoring
+                progress_stop.set()
+                progress_thread.join(timeout=1)
+                
+                if process.returncode == 0:
+                    # Send final progress update
+                    if output_path.exists():
+                        final_size = output_path.stat().st_size
+                        progress_callback(final_size)
+                    
+                    logger.info("QEMU image creation completed successfully")
+                    return True, None
+                else:
+                    error_msg = f"qemu-img failed (code {process.returncode}):\\n"
+                    if stdout:
+                        error_msg += f"STDOUT:\\n{stdout}\\n"
+                    if stderr:
+                        error_msg += f"STDERR:\\n{stderr}"
+                    
+                    logger.error(error_msg)
+                    return False, error_msg
+                    
+            except subprocess.TimeoutExpired:
+                process.kill()
+                progress_stop.set()
+                progress_thread.join(timeout=1)
+                return False, "QEMU imaging process timed out"
+                
+        except Exception as e:
+            logger.exception("Exception in QEMU image creation with progress")
+            return False, str(e)

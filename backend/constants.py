@@ -49,7 +49,7 @@ SPARSE_FORMATS = {"qcow2", "vhd", "vmdk"}
 COMPRESSIBLE_FORMATS = {"qcow2", "vmdk"}
 
 # Default configuration
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, object] = {
     "cleanup_tools": True,
     "last_output_dir": "",
     "theme": "auto",
@@ -59,3 +59,7 @@ DEFAULT_CONFIG = {
 
 # Archive preferences (.zip > .7z > .exe for QEMU)
 ARCHIVE_PRIORITY = {'.zip': 0, '.7z': 1, '.exe': 2}
+
+# Third-party software download URLs
+QEMU_WINDOWS_URL = "https://qemu.weilnetz.de/w64/qemu-w64-setup-20250422.exe"
+SEVENZIP_WINDOWS_URL = "https://www.7-zip.org/a/7z2301-x64.exe"

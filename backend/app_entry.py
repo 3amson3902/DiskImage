@@ -10,7 +10,7 @@ from .qemu_manager import QemuManager
 from .cleanup_utils import cleanup_all_tools
 from .logging_utils import setup_logging
 from .config_utils import AppConfig
-from .exceptions import DiskImageError
+from .thirdparty_downloader import ThirdPartyDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +36,13 @@ def run_app() -> NoReturn:
     except Exception as e:
         logger.error(f"Failed to load configuration: {e}")
         config = AppConfig()  # Use defaults
-    
-    # Initialize QEMU dependencies
-    qemu_manager = QemuManager()
+      # Initialize QEMU dependencies
     try:
+        # Ensure third-party tools are available
+        ThirdPartyDownloader.ensure_qemu()
+        ThirdPartyDownloader.ensure_sevenzip()
+        
+        qemu_manager = QemuManager()
         qemu_manager.initialize()
         logger.info("QEMU dependencies initialized successfully")
     except Exception as e:
