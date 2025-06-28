@@ -234,7 +234,7 @@ def _list_disks_powershell() -> List[Dict[str, str]]:
                     '16': 'Storage Spaces',
                     '17': 'NVMe'
                 }
-                interface = interface_map.get(str(bus_type), f"Unknown ({bus_type})")
+                interface = interface_map.get(str(bus_type), f"{bus_type}")
                 
                 disk_info = {
                     "name": name,
