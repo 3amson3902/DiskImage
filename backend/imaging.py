@@ -6,8 +6,8 @@ import logging
 from typing import Tuple, Optional, Callable, Dict, Any
 from pathlib import Path
 
-from .qemu_manager import QemuManager
-from .archive_manager import ArchiveManager
+from .qemu import QemuManager
+from .archive import ArchiveManager
 from .validation import (
     validate_disk_info, validate_output_path, validate_image_format,
     validate_archive_format, validate_buffer_size

@@ -2,7 +2,7 @@
 
 A modern, cross-platform disk imaging tool with both GUI and CLI interfaces. Built with Python, PyQt6, and using QEMU and 7-Zip for robust disk image creation and management.
 
-![CI/CD Status](https://github.com/yourusername/diskimage/workflows/CI/CD%20Pipeline/badge.svg)
+![CI/CD Status](https://github.com/3amson3902/diskimage/workflows/CI/CD%20Pipeline/badge.svg)
 ![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 

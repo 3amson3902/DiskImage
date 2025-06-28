@@ -1,5 +1,5 @@
 """
-gui/pyqt_app.py - PyQt6 GUI entry point for DiskImage
+gui/gui.py - PyQt6 GUI entry point for DiskImage
 """
 import sys
 import logging

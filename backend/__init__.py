@@ -5,19 +5,19 @@ Provides core functionality for disk imaging, archiving, and tool management.
 """
 
 # Core managers
-from .qemu_manager import QemuManager
-from .sevenzip_manager import SevenZipManager  
-from .archive_manager import ArchiveManager
+from .qemu import QemuManager
+from .sevenzip import SevenZipManager  
+from .archive import ArchiveManager
 
 # Worker classes
-from .imaging_worker import ImagingWorker
+from .imaging import ImagingWorker
 
 # Utilities
-from .config_utils import AppConfig
-from .logging_utils import setup_logging, get_logger
-from .disk_list_utils import list_disks
-from .admin_utils import is_admin, require_admin
-from .cleanup_utils import cleanup_qemu_files, cleanup_sevenzip_files, cleanup_all_tools
+from .config import AppConfig
+from .logging_config import setup_logging, get_logger
+from .disk_list import list_disks
+from .admin import is_admin, require_admin
+from .cleanup import cleanup_qemu_files, cleanup_sevenzip_files, cleanup_all_tools
 from .validation import (
     validate_disk_info, validate_output_path, validate_image_format,
     validate_archive_format, validate_buffer_size
@@ -38,9 +38,9 @@ from .constants import (
 )
 
 # Legacy imports for backward compatibility
-from .imaging_worker import run_imaging_job
-from .archive_manager import archive_image
-from .config_utils import load_config, save_config, update_config
+from .imaging import run_imaging_job
+from .archive import archive_image
+from .config import load_config, save_config, update_config
 
 __all__ = [
     # Core managers

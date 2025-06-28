@@ -11,8 +11,8 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from backend.app_entry import run_app
-from cli.main import main as cli_main
+from backend.app import run_app
+from cli.cli import main as cli_main
 
 
 def main():

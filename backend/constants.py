@@ -61,5 +61,6 @@ DEFAULT_CONFIG: dict[str, object] = {
 ARCHIVE_PRIORITY = {'.zip': 0, '.7z': 1, '.exe': 2}
 
 # Third-party software download URLs
+# QEMU installer (will be extracted for portable use)
 QEMU_WINDOWS_URL = "https://qemu.weilnetz.de/w64/qemu-w64-setup-20250422.exe"
 SEVENZIP_WINDOWS_URL = "https://www.7-zip.org/a/7z2301-x64.exe"

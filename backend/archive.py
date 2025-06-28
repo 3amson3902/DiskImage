@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Tuple, Optional
 
-from .sevenzip_manager import SevenZipManager
+from .sevenzip import SevenZipManager
 from .exceptions import ArchiveError
 from .validation import validate_archive_format
 

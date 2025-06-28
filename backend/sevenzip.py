@@ -8,7 +8,7 @@ from typing import Optional, List, Tuple
 
 from .constants import SEVENZIP_DIR, TOOLS_DIR
 from .exceptions import SevenZipError, SevenZipNotFoundError
-from .sevenzip_utils import find_7z_exe, extract_7z_from_installer, find_7z_installer
+from .sevenzip_ops import find_7z_exe, extract_7z_from_installer, find_7z_installer
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ import logging
 import platform
 import os
 import subprocess
-from .qemu_manager import QemuManager
+from .qemu import QemuManager
 
 BUFFER_SIZE = 64 * 1024 * 1024  # 64MB for default buffer size
 is_windows = platform.system() == "Windows"

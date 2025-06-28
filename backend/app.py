@@ -6,10 +6,10 @@ import sys
 import logging
 from typing import NoReturn
 
-from .qemu_manager import QemuManager
-from .cleanup_utils import cleanup_all_tools
-from .logging_utils import setup_logging
-from .config_utils import AppConfig
+from .qemu import QemuManager
+from .cleanup import cleanup_all_tools
+from .logging_config import setup_logging
+from .config import AppConfig
 from .thirdparty_downloader import ThirdPartyDownloader
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def run_app() -> NoReturn:
     
     # Import and run GUI
     try:
-        from gui.pyqt_app import run_pyqt_gui
+        from gui.gui import run_pyqt_gui
         logger.info("Launching GUI")
         run_pyqt_gui()
         
